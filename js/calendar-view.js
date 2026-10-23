@@ -10,6 +10,7 @@ class CalendarView {
     this.currentDate = new Date();
     this.viewMode = 'month'; // 'month' or 'week'
     this.draggedTaskId = null;
+    window.calendarView = this;
   }
 
   prev() {
@@ -56,10 +57,10 @@ class CalendarView {
         <div class="calendar-header">
           <div style="display: flex; align-items: center; gap: 12px;">
             <div class="calendar-month-title">${title}</div>
-            <div class="calendar-nav-controls">
-              <button class="btn btn-secondary btn-sm" onclick="window.calendarView.prev()">◀</button>
+            <div class="calendar-nav-controls" style="display: flex; align-items: center; gap: 4px;">
+              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.prev()" title="Bulan Sebelumnya">◀</button>
               <button class="btn btn-secondary btn-sm" onclick="window.calendarView.today()">Hari Ini</button>
-              <button class="btn btn-secondary btn-sm" onclick="window.calendarView.next()">▶</button>
+              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.next()" title="Bulan Selanjutnya">▶</button>
             </div>
           </div>
           <div class="view-tabs">

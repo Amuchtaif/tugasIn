@@ -7,8 +7,15 @@
   <meta name="description" content="Aplikasi web manajemen tugas kuliah dan proyek pribadi ala Notion dengan hierarki Semester, Mata Kuliah, Kanban, Kalender, dan Pengingat Telegram.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+  <script>
+    (function() {
+      // Default theme: Glassline Light Mode (design-lightmode.md)
+      var saved = localStorage.getItem('tugasin_theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
 </head>
 <body>
 
@@ -68,7 +75,7 @@
       <div>
         <div class="nav-section-title">
           <span>SEMESTER & MATA KULIAH</span>
-          <button class="btn btn-ghost btn-sm" onclick="window.app.openSemesterModal()" title="Tambah Semester Baru" style="padding: 0 4px;">
+          <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openSemesterModal()" title="Tambah Semester Baru">
             +
           </button>
         </div>
@@ -83,8 +90,15 @@
       <div class="nav-item sidebar-nav-item" data-view="settings" onclick="window.app.navigateTo('settings')">
         <div class="nav-item-left">
           <span>⚙️</span>
-          <span>Pengaturan & Telegram</span>
+          <span>Pengaturan & Database</span>
         </div>
+      </div>
+      <div style="padding: 4px 10px 2px; display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-muted); font-family: var(--font-mono);">
+        <span style="display: flex; align-items: center; gap: 6px;">
+          <span class="status-dot active" style="width: 6px; height: 6px;" title="Terhubung ke MySQL"></span>
+          <span>MySQL (tugasin_db)</span>
+        </span>
+        <span>v1.0</span>
       </div>
     </div>
   </aside>
@@ -130,7 +144,12 @@
           </div>
         </div>
 
-        <!-- Primary Action Button: Single Lime Signal from design.md -->
+        <!-- Theme Switcher Toggle (Glassline Light Mode / Graphite Dark Mode) -->
+        <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" onclick="window.app.toggleTheme()" title="Beralih ke Mode Gelap (Graphite)">
+          <span id="theme-toggle-icon">🌙</span>
+        </button>
+
+        <!-- Primary Action Button: Tertiary Cobalt Accent from design-lightmode.md -->
         <button id="main-add-task-btn" class="btn btn-primary" onclick="window.app.openQuickAddModal()">
           + Task Baru
         </button>
@@ -196,7 +215,7 @@
   <div class="modal-dialog">
     <div class="modal-header">
       <div class="h2">Tambah Task Cepat</div>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('quick-add-modal')">✕</button>
+      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('quick-add-modal')">✕</button>
     </div>
     <form onsubmit="window.app.submitQuickAdd(event)">
       <div class="modal-body">
@@ -250,7 +269,7 @@
   <div class="modal-dialog modal-dialog-large">
     <div class="modal-header">
       <div class="h2" id="task-modal-title" style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('task-detail-modal')">✕</button>
+      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('task-detail-modal')">✕</button>
     </div>
     <form onsubmit="window.app.saveTaskDetail(event)">
       <div class="modal-body">
@@ -312,6 +331,41 @@
             </div>
           </div>
         </div>
+
+        <!-- Attachments Section (Gambar Pendukung) -->
+        <div class="form-group" style="margin-top: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Gambar Pendukung (Opsional)</label>
+            <span id="attachment-counter" class="mono-label" style="font-size: 0.75rem; color: var(--color-muted);">0 / 10 gambar</span>
+          </div>
+
+          <!-- Drag and Drop Upload Area -->
+          <div id="attachment-dropzone" class="attachment-dropzone"
+               ondragover="window.app.handleAttachmentDragOver(event)"
+               ondragleave="window.app.handleAttachmentDragLeave(event)"
+               ondrop="window.app.handleAttachmentDrop(event)">
+            <input type="file" id="attachment-file-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display: none;" onchange="window.app.handleAttachmentFileSelect(event)">
+            <div style="font-size: 1.5rem; margin-bottom: 4px;">🖼️</div>
+            <div style="font-size: 0.85rem; font-weight: 500; color: var(--color-primary); margin-bottom: 4px;">
+              Tarik & jatuhkan gambar ke sini, atau
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('attachment-file-input').click()">
+                Pilih File Gambar
+              </button>
+              <span class="mono-label" style="font-size: 0.72rem; color: var(--color-muted);">atau tempel tangkapan layar (Ctrl+V)</span>
+            </div>
+            <div style="font-size: 0.75rem; color: var(--color-muted);">
+              Maks 5 MB per gambar (JPG, PNG, WebP, GIF) · Maksimal 10 gambar per task
+            </div>
+          </div>
+
+          <!-- Upload Progress / Status Message -->
+          <div id="attachment-upload-status" class="mono-label" style="font-size: 0.8rem; margin-top: 6px; display: none;"></div>
+
+          <!-- Attachments Thumbnails Grid -->
+          <div id="attachment-grid" class="attachment-grid"></div>
+        </div>
       </div>
 
       <div class="modal-footer">
@@ -331,7 +385,7 @@
   <div class="modal-dialog">
     <div class="modal-header">
       <div class="h2">Kelola Semester</div>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('semester-modal')">✕</button>
+      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('semester-modal')">✕</button>
     </div>
     <form onsubmit="window.app.saveSemester(event)">
       <input type="hidden" id="sem-modal-id">
@@ -368,7 +422,7 @@
   <div class="modal-dialog">
     <div class="modal-header">
       <div class="h2">Kelola Mata Kuliah</div>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('course-modal')">✕</button>
+      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('course-modal')">✕</button>
     </div>
     <form onsubmit="window.app.saveCourse(event)">
       <input type="hidden" id="course-modal-id">
@@ -409,7 +463,7 @@
   <div class="modal-dialog">
     <div class="modal-header">
       <div class="h2">Kelola Proyek & Tugas Besar</div>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('project-modal')">✕</button>
+      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('project-modal')">✕</button>
     </div>
     <form onsubmit="window.app.saveProject(event)">
       <input type="hidden" id="proj-modal-id">
@@ -446,7 +500,56 @@
   </div>
 </div>
 
+<!-- MODAL: IMAGE PREVIEW & LIGHTBOX (Task 4) -->
+<div id="image-preview-modal" class="image-preview-overlay" role="dialog" aria-modal="true" style="display: none;" onclick="window.app.handlePreviewBackdropClick(event)">
+  <div class="image-preview-container" onclick="event.stopPropagation()">
+    <!-- Header Bar -->
+    <div class="image-preview-header">
+      <div class="image-preview-title-box">
+        <span id="preview-filename" class="image-preview-filename">image.jpg</span>
+        <span id="preview-counter" class="image-preview-counter">1 / 1</span>
+        <span id="preview-filesize" class="mono-label" style="font-size: 0.72rem; color: #94A3B8;"></span>
+      </div>
+      <div class="image-preview-controls">
+        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomOut()" title="Perkecil (Zoom Out)">−</button>
+        <button type="button" class="btn btn-ghost btn-sm preview-btn" onclick="window.app.previewResetZoom()" id="preview-zoom-label" title="Reset Zoom">100%</button>
+        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomIn()" title="Perbesar (Zoom In)">+</button>
+        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.downloadActivePreviewImage()" title="Unduh Gambar Asli">💾</button>
+        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.deleteActivePreviewImage()" title="Hapus Gambar Ini" style="color: #EF4444;">🗑️</button>
+        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn preview-close-btn" onclick="window.app.closeImagePreviewModal()" title="Tutup (Esc)">✕</button>
+      </div>
+    </div>
+
+    <!-- Main Viewport -->
+    <div class="image-preview-stage" id="image-preview-stage"
+         onmousedown="window.app.handlePreviewStageMouseDown(event)"
+         onmousemove="window.app.handlePreviewStageMouseMove(event)"
+         onmouseup="window.app.handlePreviewStageMouseUp(event)"
+         ontouchstart="window.app.handlePreviewTouchStart(event)"
+         ontouchmove="window.app.handlePreviewTouchMove(event)"
+         ontouchend="window.app.handlePreviewTouchEnd(event)">
+      <button type="button" class="preview-nav-btn prev-btn" id="preview-prev-btn" onclick="window.app.previewPrevImage()" title="Gambar Sebelumnya (Panah Kiri)">◀</button>
+      
+      <div class="image-preview-wrapper" id="image-preview-wrapper">
+        <div id="preview-loading-spinner" class="preview-spinner" style="display: none;"></div>
+        <img id="preview-full-img" class="image-preview-img" src="" alt="Preview Lampiran Tugas">
+      </div>
+
+      <button type="button" class="preview-nav-btn next-btn" id="preview-next-btn" onclick="window.app.previewNextImage()" title="Gambar Selanjutnya (Panah Kanan)">▶</button>
+    </div>
+
+    <!-- Caption / Footer Bar -->
+    <div class="image-preview-footer">
+      <div id="preview-caption-display" class="preview-caption-text"></div>
+      <div style="font-size: 0.72rem; color: #94A3B8; font-family: var(--font-mono);">
+        Navigasi: ◀ ▶ Panah Keyboard · Zoom: Drag / Tombol · Tutup: Esc
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Core Scripts -->
+<script src="js/button.js"></script>
 <script src="js/store.js"></script>
 <script src="js/telegram.js"></script>
 <script src="js/list-view.js"></script>

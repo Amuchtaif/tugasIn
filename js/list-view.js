@@ -7,6 +7,7 @@ class ListView {
   constructor(containerId, store) {
     this.container = document.getElementById(containerId);
     this.store = store;
+    window.listView = this;
   }
 
   render(tasks, groupBy = 'status') {
@@ -145,6 +146,16 @@ class ListView {
       tagsHtml = task.tags.map(t => `<span class="mono-label" style="background-color: var(--color-surface-hover); padding: 2px 6px; border-radius: 4px;">#${this.escapeHtml(t)}</span>`).join(' ');
     }
 
+    // Attachments counter
+    let attachmentsHtml = '';
+    if (task.attachments && task.attachments.length > 0) {
+      attachmentsHtml = `
+        <span class="attachment-pill" title="${task.attachments.length} lampiran gambar">
+          🖼️ ${task.attachments.length}
+        </span>
+      `;
+    }
+
     return `
       <tr class="task-row" data-id="${task.id}">
         <td class="task-checkbox-col">
@@ -157,6 +168,7 @@ class ListView {
         <td class="task-title-cell" onclick="window.app.openTaskDetail('${task.id}')">
           <div class="task-title-text ${isCompleted ? 'completed' : ''}">
             ${this.escapeHtml(task.judul)}
+            ${attachmentsHtml}
             ${subtasksHtml}
           </div>
           <div class="task-meta-preview">
@@ -179,11 +191,11 @@ class ListView {
         <td style="width: 170px;">
           ${deadlineHtml}
         </td>
-        <td style="width: 80px; text-align: right;">
-          <button class="btn btn-ghost btn-sm" onclick="window.app.openTaskDetail('${task.id}')" title="Edit">
+        <td style="width: 80px; text-align: right; white-space: nowrap;">
+          <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openTaskDetail('${task.id}')" title="Edit">
             ✎
           </button>
-          <button class="btn btn-ghost btn-sm" onclick="window.app.deleteTask('${task.id}')" title="Hapus ke Sampah">
+          <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteTask('${task.id}')" title="Hapus ke Sampah">
             🗑
           </button>
         </td>

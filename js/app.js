@@ -18,11 +18,27 @@ class App {
     this.kanbanView = new KanbanView('view-body', this.store);
     this.calendarView = new CalendarView('view-body', this.store);
 
+    window.app = this;
+    window.kanbanView = this.kanbanView;
+    window.calendarView = this.calendarView;
+    window.listView = this.listView;
+
     this.activeEditingTaskId = null;
+    this.activePreviewTaskId = null;
+    this.activePreviewIndex = 0;
+    this.previewZoom = 1;
+    this.previewPan = { x: 0, y: 0 };
+    this.isPanning = false;
+    this.panStart = { x: 0, y: 0 };
+    this.touchStartDist = 0;
+    this.touchStartPoint = { x: 0, y: 0 };
+
     this.init();
   }
 
   init() {
+    this.initTheme();
+
     // Subscribe to store updates
     this.store.subscribe(() => {
       this.renderSidebar();
@@ -31,15 +47,47 @@ class App {
     });
 
     this.bindEvents();
+    this.setupAttachmentDropzone();
     this.renderSidebar();
     this.renderTopStats();
     this.renderCurrentView();
   }
 
   bindEvents() {
-    // Keyboard shortcuts
+    // Keyboard shortcuts & Navigation
     window.addEventListener('keydown', (e) => {
-      // Don't trigger if user is typing in an input/textarea
+      // Lightbox modal keyboard navigation (Task 4.4, 4.6, 4.9)
+      const previewModal = document.getElementById('image-preview-modal');
+      const isPreviewOpen = previewModal && previewModal.style.display !== 'none';
+      if (isPreviewOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.closeImagePreviewModal();
+          return;
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          this.previewPrevImage();
+          return;
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          this.previewNextImage();
+          return;
+        } else if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          this.previewZoomIn();
+          return;
+        } else if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          this.previewZoomOut();
+          return;
+        } else if (e.key === '0') {
+          e.preventDefault();
+          this.previewResetZoom();
+          return;
+        }
+      }
+
+      // Don't trigger standard shortcuts if user is typing in an input/textarea
       const tag = e.target.tagName.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') {
         if (e.key === 'Escape') {
@@ -60,6 +108,31 @@ class App {
       }
     });
 
+    // Clipboard paste handler for screenshots (Task 3.4)
+    window.addEventListener('paste', (e) => {
+      const taskModal = document.getElementById('task-detail-modal');
+      if (taskModal && taskModal.classList.contains('active') && this.activeEditingTaskId) {
+        const items = e.clipboardData ? e.clipboardData.items : [];
+        const imageFiles = [];
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type && items[i].type.startsWith('image/')) {
+            const file = items[i].getAsFile();
+            if (file) {
+              const now = new Date();
+              const ext = file.type.split('/')[1] || 'png';
+              const filename = `screenshot_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}.${ext}`;
+              const namedFile = new File([file], filename, { type: file.type });
+              imageFiles.push(namedFile);
+            }
+          }
+        }
+        if (imageFiles.length > 0) {
+          e.preventDefault();
+          this.uploadAttachmentFiles(imageFiles, this.activeEditingTaskId);
+        }
+      }
+    });
+
     // Global Search
     const searchInput = document.getElementById('global-search');
     if (searchInput) {
@@ -77,6 +150,67 @@ class App {
         sidebar.classList.toggle('open');
       });
     }
+  }
+
+  // --- THEME MANAGEMENT (Glassline Light Mode / Graphite Dark Mode) ---
+  initTheme() {
+    const settings = this.store.getSettings() || {};
+    const saved = localStorage.getItem('tugasin_theme') || settings.theme || 'light';
+    this.setTheme(saved, false);
+  }
+
+  toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    this.setTheme(next, true);
+  }
+
+  setTheme(themeName, notify = true) {
+    const target = themeName === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', target);
+    localStorage.setItem('tugasin_theme', target);
+
+    if (this.store) {
+      this.store.updateSettings({ theme: target });
+    }
+
+    // Update theme toggle button icon & tooltip in top-bar
+    const icon = document.getElementById('theme-toggle-icon');
+    const btn = document.getElementById('theme-toggle-btn');
+    if (icon) {
+      icon.textContent = target === 'dark' ? '☀️' : '🌙';
+    }
+    if (btn) {
+      btn.title = target === 'dark' ? 'Beralih ke Mode Terang (Glassline)' : 'Beralih ke Mode Gelap (Graphite)';
+    }
+
+    if (notify) {
+      this.showToastNotification(
+        `Tema diubah ke ${target === 'dark' ? 'Mode Gelap (Graphite)' : 'Mode Terang (Glassline)'}`
+      );
+    }
+
+    // If on settings view, re-render to reflect selection
+    if (this.currentView === 'settings') {
+      this.renderSettingsView();
+    }
+  }
+
+  showToastNotification(msg) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-reminder';
+    toast.innerHTML = `
+      <div style="flex: 1; display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size: 0.88rem; font-weight: 500;">${this.escapeHtml(msg)}</span>
+        <button class="btn btn-ghost btn-icon-sm" onclick="this.closest('.toast').remove()">✕</button>
+      </div>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 3000);
   }
 
   // --- NAVIGATION ROUTING ---
@@ -151,7 +285,7 @@ class App {
               <span>${this.escapeHtml(sem.nama)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 4px;">
-              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window.app.openSemesterModal('${sem.id}')" title="Pengaturan Semester">
+              <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openSemesterModal('${sem.id}')" title="Pengaturan Semester">
                 ⚙
               </button>
             </div>
@@ -330,8 +464,8 @@ class App {
               <div class="h3" style="margin-top: 4px;">${this.escapeHtml(p.nama)}</div>
             </div>
             <div style="display: flex; gap: 4px;">
-              <button class="btn btn-ghost btn-sm" onclick="window.app.openProjectModal('${p.id}')">✎</button>
-              <button class="btn btn-ghost btn-sm" onclick="window.app.deleteProjectConfirm('${p.id}')">✕</button>
+              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openProjectModal('${p.id}')" title="Edit Proyek">✎</button>
+              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteProjectConfirm('${p.id}')" title="Hapus Proyek">✕</button>
             </div>
           </div>
           <div style="font-size: 0.88rem; color: var(--color-secondary); line-height: 1.4;">
@@ -476,73 +610,178 @@ class App {
   renderSettingsView() {
     const container = document.getElementById('view-body');
     const settings = this.store.getSettings();
+    const currentTheme = document.documentElement.getAttribute('data-theme') || settings.theme || 'light';
 
     let html = `
       <div style="display: flex; flex-direction: column; gap: 24px; max-width: 780px;">
         <div>
-          <div class="h2">Pengaturan Aplikasi & Pengingat Telegram</div>
-          <p class="mono-label">Konfigurasi notifikasi Telegram bot dan pencadangan data.</p>
+          <div class="h2">Pengaturan Aplikasi</div>
+          <p class="mono-label">Konfigurasi tema tampilan antarmuka, pengingat Telegram, dan pencadangan data.</p>
+        </div>
+
+        <!-- Theme Selection Card -->
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <div class="h3">🎨 Tema Tampilan Antarmuka</div>
+            <span class="mono-label">Tema Aktif: <b style="color: var(--color-primary);">${currentTheme === 'light' ? 'Glassline (Light Mode)' : 'Graphite (Dark Mode)'}</b></span>
+          </div>
+          <p class="mono-label" style="margin-bottom: 16px;">Pilih tema desain antarmuka. Tema bawaan (default) adalah Glassline Light Mode.</p>
+
+          <div class="theme-selector-grid">
+            <!-- Glassline Light Card -->
+            <div class="theme-choice-card ${currentTheme === 'light' ? 'selected' : ''}" onclick="window.app.setTheme('light')">
+              <div class="theme-choice-header">
+                <div class="theme-choice-title">
+                  <span class="theme-choice-radio"></span>
+                  <span>Glassline (Mode Terang)</span>
+                </div>
+                <span class="theme-badge-default">Bawaan / Default</span>
+              </div>
+              <div class="theme-choice-desc">
+                Fog-grey neutrals dengan aksen tunggal cobalt (<code>#2C5EF5</code>) & font Geist. Berdasarkan <code>design-lightmode.md</code>.
+              </div>
+              <div class="theme-color-palette">
+                <div class="theme-color-chip" style="background: #F1F3F5; border: 1px solid #CBD5E1;" title="Neutral (#F1F3F5)"></div>
+                <div class="theme-color-chip" style="background: #FFFFFF; border: 1px solid #CBD5E1;" title="Surface (#FFFFFF)"></div>
+                <div class="theme-color-chip" style="background: #0F1419;" title="Primary (#0F1419)"></div>
+                <div class="theme-color-chip" style="background: #4A5568;" title="Secondary (#4A5568)"></div>
+                <div class="theme-color-chip" style="background: #2C5EF5;" title="Tertiary Cobalt (#2C5EF5)"></div>
+              </div>
+            </div>
+
+            <!-- Graphite Dark Card -->
+            <div class="theme-choice-card ${currentTheme === 'dark' ? 'selected' : ''}" onclick="window.app.setTheme('dark')">
+              <div class="theme-choice-header">
+                <div class="theme-choice-title">
+                  <span class="theme-choice-radio"></span>
+                  <span>Graphite (Mode Gelap)</span>
+                </div>
+              </div>
+              <div class="theme-choice-desc">
+                Cool engineering greys dengan aksen tunggal lime (<code>#B4FF39</code>) & font Inter. Berdasarkan <code>design.md</code>.
+              </div>
+              <div class="theme-color-palette">
+                <div class="theme-color-chip" style="background: #0E1013; border: 1px solid #3E4552;" title="Neutral (#0E1013)"></div>
+                <div class="theme-color-chip" style="background: #17191C; border: 1px solid #3E4552;" title="Surface (#17191C)"></div>
+                <div class="theme-color-chip" style="background: #ECEDEE;" title="Primary (#ECEDEE)"></div>
+                <div class="theme-color-chip" style="background: #9CA3AF;" title="Secondary (#9CA3AF)"></div>
+                <div class="theme-color-chip" style="background: #B4FF39;" title="Tertiary Lime (#B4FF39)"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Telegram Configuration Box -->
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-            <div class="h3">🤖 Integrasi Telegram Bot (MVP)</div>
+            <div class="h3">🤖 Integrasi Telegram Bot Pengingat</div>
             <span class="tg-status-indicator">
-              <span class="status-dot ${settings.telegram_enabled && settings.telegram_bot_token ? 'active' : ''}"></span>
-              ${settings.telegram_enabled && settings.telegram_bot_token ? 'Aktif' : 'Nonaktif'}
+              <span class="status-dot ${settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id ? 'active' : ''}"></span>
+              ${settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id ? 'Aktif & Terhubung' : 'Belum Terhubung'}
             </span>
           </div>
 
-          <div style="font-size: 0.88rem; color: var(--color-secondary); margin-bottom: 16px; line-height: 1.5;">
-            Pengingat deadline akan dikirim langsung ke akun Telegram Anda via Bot.
-            Buat bot via <b style="color: var(--color-primary);">@BotFather</b> untuk mendapatkan Bot Token, dan dapatkan Chat ID dari <b style="color: var(--color-primary);">@userinfobot</b>.
+          <!-- Quick Guide Accordion/Box -->
+          <div style="background-color: var(--color-surface-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 20px;">
+            <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; color: var(--color-primary); display: flex; align-items: center; gap: 6px;">
+              <span>📖</span>
+              <span>Langkah Cepat Membuat & Menghubungkan Bot:</span>
+            </div>
+            <ol style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--color-secondary); line-height: 1.6;">
+              <li>Buka Telegram, cari akun resmi <b><a href="https://t.me/BotFather" target="_blank" style="color: var(--color-tertiary); text-decoration: underline;">@BotFather</a></b>.</li>
+              <li>Kirim pesan <code>/newbot</code>, lalu beri nama bot (contoh: <i>TugasIn Pengingat</i>) dan username (harus berakhiran <i>bot</i>, contoh: <i>tugasin_kahlil_bot</i>).</li>
+              <li>Salin <b>HTTP API Token</b> yang diberikan BotFather dan tempel di kolom <b>Telegram Bot Token</b> di bawah.</li>
+              <li>Buka bot yang baru Anda buat di Telegram, lalu tekan tombol <b>START</b> (atau kirim <code>/start</code>).</li>
+              <li>Klik tombol <b>⚡ Deteksi Chat ID Otomatis</b> di bawah agar Chat ID terisi secara otomatis tanpa repot!</li>
+            </ol>
           </div>
 
-          <form onsubmit="window.app.saveTelegramSettings(event)" style="display: flex; flex-direction: column; gap: 14px;">
+          <form onsubmit="window.app.saveTelegramSettings(event)" style="display: flex; flex-direction: column; gap: 16px;">
             <div class="form-group">
-              <label class="form-label">Telegram Bot Token</label>
-              <input type="text" id="setting-tg-token" value="${this.escapeHtml(settings.telegram_bot_token || '')}" placeholder="Contoh: 123456789:ABCdefGhIJKlmNoPQRstuVWXyz">
+              <label class="form-label">Telegram Bot Token *</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="setting-tg-token" value="${this.escapeHtml(settings.telegram_bot_token || '')}" placeholder="Contoh: 7123456789:AAHkL1234567890abcdefghijklmnopqrst" style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.verifyTelegramBot()">
+                  🔍 Verifikasi Token
+                </button>
+              </div>
+              <div id="tg-bot-verify-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 4px;"></div>
             </div>
 
             <div class="form-group">
-              <label class="form-label">Telegram Chat ID</label>
-              <input type="text" id="setting-tg-chatid" value="${this.escapeHtml(settings.telegram_chat_id || '')}" placeholder="Contoh: 987654321">
+              <label class="form-label">Telegram Chat ID *</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="setting-tg-chatid" value="${this.escapeHtml(settings.telegram_chat_id || '')}" placeholder="Contoh: 123456789" style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.detectTelegramChatId()" title="Deteksi Chat ID otomatis dari pesan /start terakhir">
+                  ⚡ Deteksi Chat ID Otomatis
+                </button>
+              </div>
+              <div id="tg-detect-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 4px;"></div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="checkbox" id="setting-tg-enabled" ${settings.telegram_enabled ? 'checked' : ''} style="width: auto;">
-              <label for="setting-tg-enabled" style="font-size: 0.88rem; cursor: pointer;">Aktifkan pengiriman pengingat via Telegram</label>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
+              <input type="checkbox" id="setting-tg-enabled" ${settings.telegram_enabled ? 'checked' : ''} style="width: auto; cursor: pointer;">
+              <label for="setting-tg-enabled" style="font-size: 0.88rem; cursor: pointer; user-select: none;">
+                Aktifkan pengiriman pengingat deadline otomatis via Telegram
+              </label>
             </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 8px;">
-              <button type="submit" class="btn btn-secondary">Simpan Pengaturan</button>
+            <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
+              <button type="submit" class="btn btn-primary">
+                💾 Simpan Pengaturan
+              </button>
               <button type="button" class="btn btn-secondary" onclick="window.app.testTelegramConnection()">
-                Kirim Pesan Tes Telegram
+                🔔 Kirim Pesan Tes Telegram
               </button>
             </div>
             <div id="tg-test-feedback" class="mono-label" style="margin-top: 6px;"></div>
           </form>
         </div>
 
+        <!-- MySQL Database Status & Management Box -->
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div class="h3">🗄️ Database Relasional MySQL</div>
+            <span class="tg-status-indicator">
+              <span class="status-dot ${this.store.dbConnected ? 'active' : ''}"></span>
+              ${this.store.dbConnected ? 'Terhubung (MySQL)' : 'Offline (Cache Lokal)'}
+            </span>
+          </div>
+
+          <div style="font-size: 0.88rem; color: var(--color-secondary); margin-bottom: 16px; line-height: 1.5;">
+            Data TugasIn kini tersimpan permanen di database relasional <b>MySQL (MariaDB)</b> dengan nama database <code style="font-family: var(--font-mono); background: var(--color-neutral); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-border);">tugasin_db</code>.
+            Integritas relasi antar-entitas (Semester, Mata Kuliah, Task, Subtask) dijamin oleh database server.
+          </div>
+
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" onclick="window.app.syncAllToMySQL()">
+              ⚡ Sinkronkan Ulang ke MySQL
+            </button>
+            <button class="btn btn-secondary" onclick="window.app.checkDbStatus()">
+              🔍 Periksa Koneksi Database
+            </button>
+            <button class="btn btn-danger" onclick="window.app.resetDataConfirm()">
+              ↺ Reset Database ke Nilai Bawaan
+            </button>
+          </div>
+          <div id="db-feedback" class="mono-label" style="margin-top: 10px;"></div>
+        </div>
+
         <!-- Backup & Restore Box -->
         <div class="card">
-          <div class="h3" style="margin-bottom: 8px;">💾 Pencadangan & Pemulihan Data</div>
+          <div class="h3" style="margin-bottom: 8px;">💾 Pencadangan & Pemulihan Berkas JSON</div>
           <div style="font-size: 0.88rem; color: var(--color-secondary); margin-bottom: 16px;">
-            Ekspor seluruh semester, mata kuliah, dan task ke berkas JSON lokal untuk backup aman.
+            Ekspor seluruh semester, mata kuliah, dan task ke berkas JSON lokal untuk backup mandiri.
           </div>
 
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button class="btn btn-secondary" onclick="window.app.exportDataToFile()">
-              📥 Ekspor Data (JSON)
+              📥 Ekspor Berkas JSON
             </button>
             <label class="btn btn-secondary" style="cursor: pointer;">
-              📤 Impor Data (JSON)
+              📤 Impor Berkas JSON
               <input type="file" accept=".json" onchange="window.app.importDataFromFile(event)" style="display: none;">
             </label>
-            <button class="btn btn-danger" onclick="window.app.resetDataConfirm()">
-              ↺ Reset ke Data Bawaan
-            </button>
           </div>
         </div>
       </div>
@@ -637,10 +876,15 @@ class App {
   closeModal(modalId) {
     const el = document.getElementById(modalId);
     if (el) el.classList.remove('active');
+    if (modalId === 'task-detail-modal') {
+      this.activeEditingTaskId = null;
+    }
   }
 
   closeAllModals() {
+    this.closeImagePreviewModal();
     document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+    this.activeEditingTaskId = null;
   }
 
   // --- QUICK ADD MODAL ---
@@ -783,6 +1027,9 @@ class App {
     // Subtasks
     this.renderSubtasksEditor(task.subtasks || []);
 
+    // Supporting Image Attachments (Task 3)
+    this.renderTaskAttachments(task);
+
     this.openModal('task-detail-modal');
   }
 
@@ -796,7 +1043,7 @@ class App {
         <div class="subtask-item">
           <input type="checkbox" ${st.selesai ? 'checked' : ''} onchange="window.app.toggleSubtask(${idx})">
           <input type="text" class="subtask-title-input ${st.selesai ? 'done' : ''}" value="${this.escapeHtml(st.judul)}" onchange="window.app.updateSubtaskTitle(${idx}, this.value)">
-          <button type="button" class="btn btn-ghost btn-sm" onclick="window.app.deleteSubtask(${idx})" style="color: var(--color-danger);">✕</button>
+          <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteSubtask(${idx})" style="color: var(--color-danger);" title="Hapus Subtask">✕</button>
         </div>
       `;
     });
@@ -1011,6 +1258,93 @@ class App {
     }
   }
 
+  async verifyTelegramBot() {
+    const token = document.getElementById('setting-tg-token').value.trim();
+    const feedback = document.getElementById('tg-bot-verify-feedback');
+    if (!token) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = 'Masukkan Telegram Bot Token terlebih dahulu!';
+      }
+      return;
+    }
+
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Memverifikasi bot ke server Telegram...';
+    }
+
+    try {
+      const res = await fetch('api.php?action=check_telegram_bot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (data.ok && data.result) {
+        const bot = data.result;
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          feedback.innerHTML = `✓ Bot Valid: <b>${this.escapeHtml(bot.first_name)}</b> (<a href="https://t.me/${bot.username}" target="_blank" style="color:var(--color-tertiary); text-decoration:underline;">@${bot.username}</a>)`;
+        }
+      } else {
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = `✕ Token tidak valid: ${data.description || data.error || 'Periksa kembali token Anda.'}`;
+        }
+      }
+    } catch (e) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = `✕ Gagal verifikasi: ${e.message}`;
+      }
+    }
+  }
+
+  async detectTelegramChatId() {
+    const token = document.getElementById('setting-tg-token').value.trim();
+    const feedback = document.getElementById('tg-detect-feedback');
+    if (!token) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = 'Isi Telegram Bot Token terlebih dahulu!';
+      }
+      return;
+    }
+
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Mendeteksi pesan masuk dari server Telegram...';
+    }
+
+    try {
+      const res = await fetch('api.php?action=get_telegram_updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      });
+      const data = await res.json();
+      if (data.ok && data.chat_id) {
+        document.getElementById('setting-tg-chatid').value = data.chat_id;
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          const name = data.first_name || data.username || 'Pengguna';
+          feedback.textContent = `✓ Chat ID terdeteksi: ${data.chat_id} (${name})`;
+        }
+      } else {
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = `✕ ${data.error || 'Chat ID tidak ditemukan.'}`;
+        }
+      }
+    } catch (e) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = `✕ Gagal mendeteksi: ${e.message}`;
+      }
+    }
+  }
+
   async testTelegramConnection() {
     const feedback = document.getElementById('tg-test-feedback');
     if (feedback) {
@@ -1057,12 +1391,552 @@ class App {
     reader.readAsText(file);
   }
 
-  resetDataConfirm() {
-    if (confirm('Perhatian! Anda akan mengatur ulang seluruh data ke nilai bawaan. Lanjutkan?')) {
-      this.store.resetData();
-      alert('Data telah direset ke bawaan demo.');
+  async resetDataConfirm() {
+    if (confirm('Perhatian! Anda akan mengatur ulang seluruh database MySQL ke nilai bawaan. Lanjutkan?')) {
+      await this.store.resetData();
+      this.showToastNotification('Database berhasil diatur ulang ke data demo bawaan.');
       this.renderCurrentView();
     }
+  }
+
+  async syncAllToMySQL() {
+    const feedback = document.getElementById('db-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Menyinkronkan data ke MySQL (tugasin_db)...';
+    }
+
+    const res = await this.store.syncAllToMySQL();
+    if (feedback) {
+      if (res && res.ok) {
+        feedback.style.color = 'var(--color-tertiary)';
+        feedback.textContent = '✓ Seluruh data berhasil disinkronkan ke database MySQL!';
+        this.showToastNotification('Sinkronisasi MySQL berhasil!');
+      } else {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = `✕ Gagal sinkronisasi: ${res ? res.error : 'Koneksi error'}`;
+      }
+    }
+    this.renderCurrentView();
+  }
+
+  async checkDbStatus() {
+    const feedback = document.getElementById('db-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Memeriksa status koneksi MySQL...';
+    }
+
+    try {
+      const res = await fetch('api.php?action=ping');
+      const data = await res.json();
+      if (data && data.ok) {
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          feedback.textContent = `✓ MySQL terhubung! Database: ${data.database}, Tugas aktif: ${data.active_tasks}`;
+        }
+        this.store.dbConnected = true;
+      } else {
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = '✕ Database tidak merespons.';
+        }
+        this.store.dbConnected = false;
+      }
+    } catch (e) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = `✕ Gagal terhubung ke MySQL: ${e.message}`;
+      }
+      this.store.dbConnected = false;
+    }
+  }
+
+  // --- ATTACHMENTS (Gambar Pendukung - Task 3 & Task 4) ---
+  setupAttachmentDropzone() {
+    const dropzone = document.getElementById('attachment-dropzone');
+    if (!dropzone) return;
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add('drag-over');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('drag-over');
+      });
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const files = dt ? Array.from(dt.files) : [];
+      if (files.length > 0 && this.activeEditingTaskId) {
+        this.uploadAttachmentFiles(files, this.activeEditingTaskId);
+      }
+    });
+
+    const fileInput = document.getElementById('attachment-file-input');
+    if (fileInput) {
+      fileInput.addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length > 0 && this.activeEditingTaskId) {
+          this.uploadAttachmentFiles(files, this.activeEditingTaskId);
+        }
+        e.target.value = '';
+      });
+    }
+  }
+
+  renderTaskAttachments(task) {
+    const counterEl = document.getElementById('attachment-counter');
+    const gridEl = document.getElementById('attachment-grid');
+    const dropzoneEl = document.getElementById('attachment-dropzone');
+    if (!gridEl) return;
+
+    const attachments = (task && Array.isArray(task.attachments)) ? task.attachments : [];
+    if (counterEl) {
+      counterEl.textContent = `(${attachments.length}/10)`;
+    }
+
+    if (dropzoneEl) {
+      if (attachments.length >= 10) {
+        dropzoneEl.style.opacity = '0.5';
+        dropzoneEl.style.pointerEvents = 'none';
+      } else {
+        dropzoneEl.style.opacity = '1';
+        dropzoneEl.style.pointerEvents = 'auto';
+      }
+    }
+
+    if (attachments.length === 0) {
+      gridEl.innerHTML = `
+        <div class="mono-label" style="grid-column: 1 / -1; color: var(--color-muted); font-size: 0.8rem; padding: 4px 0;">
+          Belum ada gambar lampiran untuk tugas ini.
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    attachments.forEach((att, idx) => {
+      const thumbUrl = `api.php?action=view_attachment&id=${att.id}&thumb=1`;
+      html += `
+        <div class="attachment-card" data-att-id="${att.id}">
+          <div class="attachment-thumb-wrap" onclick="window.app.openImagePreview('${task.id}', ${idx})" title="Klik untuk memperbesar / preview">
+            <img src="${thumbUrl}" alt="${this.escapeHtml(att.caption || att.file_name)}" loading="lazy">
+            <div class="attachment-overlay-hint">🔍 Lihat</div>
+          </div>
+          <div class="attachment-card-body">
+            <div class="attachment-file-info" title="${this.escapeHtml(att.file_name)}">
+              ${this.escapeHtml(att.file_name)}
+            </div>
+            <div class="attachment-meta-row">
+              <span>${this.formatBytes(att.size_bytes)}</span>
+              ${att.width && att.height ? `<span>${att.width}×${att.height}</span>` : ''}
+            </div>
+            <div class="attachment-caption-row">
+              <div class="attachment-caption-text ${att.caption ? '' : 'placeholder'}"
+                   onclick="window.app.promptEditCaption('${task.id}', '${att.id}', '${this.escapeHtml(att.caption || '')}')"
+                   title="Klik untuk ubah keterangan">
+                ${att.caption ? this.escapeHtml(att.caption) : '+ Tambah keterangan...'}
+              </div>
+            </div>
+          </div>
+          <div class="attachment-card-actions">
+            ${idx > 0 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, -1)" title="Geser ke kiri">◀</button>` : ''}
+            ${idx < attachments.length - 1 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, 1)" title="Geser ke kanan">▶</button>` : ''}
+            <div style="flex: 1;"></div>
+            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.promptEditCaption('${task.id}', '${att.id}', '${this.escapeHtml(att.caption || '')}')" title="Ubah keterangan">✎</button>
+            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.confirmDeleteAttachment('${task.id}', '${att.id}')" title="Hapus gambar" style="color: var(--color-danger);">🗑</button>
+          </div>
+        </div>
+      `;
+    });
+
+    gridEl.innerHTML = html;
+  }
+
+  async uploadAttachmentFiles(files, taskId) {
+    const task = this.store.getTask(taskId);
+    if (!task) return;
+
+    const currentAttachments = task.attachments || [];
+    if (currentAttachments.length >= 10) {
+      alert('Batas maksimal 10 gambar per task sudah tercapai.');
+      return;
+    }
+
+    const remainingSlots = 10 - currentAttachments.length;
+    let filesToUpload = Array.from(files);
+    if (filesToUpload.length > remainingSlots) {
+      alert(`Hanya dapat mengunggah ${remainingSlots} gambar lagi (maksimal 10 gambar per task).`);
+      filesToUpload = filesToUpload.slice(0, remainingSlots);
+    }
+
+    const allowedMime = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const maxSizeBytes = 5 * 1024 * 1024; // 5 MB
+
+    const statusEl = document.getElementById('attachment-upload-status');
+
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i];
+      if (!allowedMime.includes(file.type)) {
+        alert(`Format berkas "${file.name}" tidak didukung. Harap pilih gambar format JPG, PNG, WebP, atau GIF.`);
+        continue;
+      }
+      if (file.size > maxSizeBytes) {
+        alert(`Ukuran berkas "${file.name}" (${this.formatBytes(file.size)}) melebihi batas maksimal 5 MB.`);
+        continue;
+      }
+
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--color-tertiary)';
+        statusEl.textContent = `Mengunggah berkas ${i + 1} dari ${filesToUpload.length}: ${file.name}...`;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('task_id', taskId);
+        formData.append('file', file);
+
+        const res = await fetch('api.php?action=upload_attachment', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.ok && data.attachment) {
+          this.store.addAttachmentToTask(taskId, data.attachment);
+          this.showToastNotification(`✓ Gambar ${file.name} berhasil diunggah`);
+        } else {
+          alert(`Gagal mengunggah ${file.name}: ${data.error || 'Terjadi kesalahan sistem'}`);
+        }
+      } catch (err) {
+        alert(`Gagal mengunggah ${file.name}: ${err.message}`);
+      }
+    }
+
+    if (statusEl) {
+      statusEl.style.display = 'none';
+      statusEl.textContent = '';
+    }
+
+    const updatedTask = this.store.getTask(taskId);
+    this.renderTaskAttachments(updatedTask);
+    this.renderCurrentView();
+  }
+
+  promptEditCaption(taskId, attId, currentCaption) {
+    const newCaption = prompt('Ubah keterangan gambar (opsional):', currentCaption || '');
+    if (newCaption !== null) {
+      this.store.updateAttachmentCaption(taskId, attId, newCaption.trim());
+      const updatedTask = this.store.getTask(taskId);
+      this.renderTaskAttachments(updatedTask);
+      this.showToastNotification('Keterangan gambar berhasil disimpan');
+    }
+  }
+
+  async confirmDeleteAttachment(taskId, attId) {
+    if (confirm('Apakah Anda yakin ingin menghapus gambar lampiran ini?')) {
+      await this.store.removeAttachmentFromTask(taskId, attId);
+      const updatedTask = this.store.getTask(taskId);
+      this.renderTaskAttachments(updatedTask);
+      this.renderCurrentView();
+      this.showToastNotification('Gambar lampiran berhasil dihapus');
+    }
+  }
+
+  moveAttachment(taskId, currentIndex, delta) {
+    const task = this.store.getTask(taskId);
+    if (!task || !Array.isArray(task.attachments)) return;
+    const targetIndex = currentIndex + delta;
+    if (targetIndex < 0 || targetIndex >= task.attachments.length) return;
+
+    const ids = task.attachments.map(a => a.id);
+    const temp = ids[currentIndex];
+    ids[currentIndex] = ids[targetIndex];
+    ids[targetIndex] = temp;
+
+    this.store.reorderTaskAttachments(taskId, ids);
+    this.renderTaskAttachments(this.store.getTask(taskId));
+  }
+
+  // --- IMAGE PREVIEW & LIGHTBOX (Task 4) ---
+  openImagePreview(taskId, index = 0) {
+    const task = this.store.getTask(taskId);
+    if (!task || !task.attachments || task.attachments.length === 0) return;
+
+    this.activePreviewTaskId = taskId;
+    this.activePreviewIndex = Math.max(0, Math.min(index, task.attachments.length - 1));
+    this.previewZoom = 1;
+    this.previewPan = { x: 0, y: 0 };
+    this.isPanning = false;
+
+    const modal = document.getElementById('image-preview-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      modal.setAttribute('tabindex', '-1');
+      modal.focus();
+    }
+    document.body.style.overflow = 'hidden';
+
+    this.updatePreviewContent();
+  }
+
+  closeImagePreviewModal() {
+    const modal = document.getElementById('image-preview-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+    document.body.style.overflow = '';
+    this.activePreviewTaskId = null;
+    this.isPanning = false;
+  }
+
+  handlePreviewBackdropClick(e) {
+    if (e.target && e.target.id === 'image-preview-modal') {
+      this.closeImagePreviewModal();
+    }
+  }
+
+  updatePreviewContent() {
+    if (!this.activePreviewTaskId) return;
+    const task = this.store.getTask(this.activePreviewTaskId);
+    if (!task || !task.attachments || task.attachments.length === 0) {
+      this.closeImagePreviewModal();
+      return;
+    }
+
+    const attachments = task.attachments;
+    if (this.activePreviewIndex >= attachments.length) {
+      this.activePreviewIndex = attachments.length - 1;
+    }
+    if (this.activePreviewIndex < 0) {
+      this.activePreviewIndex = 0;
+    }
+
+    const att = attachments[this.activePreviewIndex];
+
+    const filenameEl = document.getElementById('preview-filename');
+    const counterEl = document.getElementById('preview-counter');
+    const filesizeEl = document.getElementById('preview-filesize');
+    const captionEl = document.getElementById('preview-caption-display');
+    const prevBtn = document.getElementById('preview-prev-btn');
+    const nextBtn = document.getElementById('preview-next-btn');
+    const imgEl = document.getElementById('preview-full-img');
+    const spinner = document.getElementById('preview-loading-spinner');
+
+    if (filenameEl) filenameEl.textContent = att.file_name;
+    if (counterEl) counterEl.textContent = `${this.activePreviewIndex + 1} / ${attachments.length}`;
+    if (filesizeEl) filesizeEl.textContent = `${this.formatBytes(att.size_bytes)} · ${att.width || '?'}×${att.height || '?'}`;
+    if (captionEl) {
+      captionEl.innerHTML = att.caption ? this.escapeHtml(att.caption) : '<span style="color: #64748B; font-style: italic;">(Tidak ada keterangan)</span>';
+    }
+
+    if (prevBtn) prevBtn.style.display = attachments.length > 1 ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = attachments.length > 1 ? 'flex' : 'none';
+
+    this.previewZoom = 1;
+    this.previewPan = { x: 0, y: 0 };
+    this.applyPreviewTransform();
+
+    if (spinner) spinner.style.display = 'block';
+    if (imgEl) {
+      imgEl.style.opacity = '0.3';
+      imgEl.src = `api.php?action=view_attachment&id=${att.id}`;
+      imgEl.onload = () => {
+        if (spinner) spinner.style.display = 'none';
+        imgEl.style.opacity = '1';
+      };
+      imgEl.onerror = () => {
+        if (spinner) spinner.style.display = 'none';
+        imgEl.style.opacity = '1';
+      };
+    }
+  }
+
+  previewNextImage() {
+    if (!this.activePreviewTaskId) return;
+    const task = this.store.getTask(this.activePreviewTaskId);
+    if (!task || !task.attachments || task.attachments.length <= 1) return;
+    this.activePreviewIndex = (this.activePreviewIndex + 1) % task.attachments.length;
+    this.updatePreviewContent();
+  }
+
+  previewPrevImage() {
+    if (!this.activePreviewTaskId) return;
+    const task = this.store.getTask(this.activePreviewTaskId);
+    if (!task || !task.attachments || task.attachments.length <= 1) return;
+    this.activePreviewIndex = (this.activePreviewIndex - 1 + task.attachments.length) % task.attachments.length;
+    this.updatePreviewContent();
+  }
+
+  previewZoomIn() {
+    this.previewZoom = Math.min(4, Math.round((this.previewZoom + 0.25) * 100) / 100);
+    this.applyPreviewTransform();
+  }
+
+  previewZoomOut() {
+    this.previewZoom = Math.max(0.5, Math.round((this.previewZoom - 0.25) * 100) / 100);
+    if (this.previewZoom <= 1) {
+      this.previewPan = { x: 0, y: 0 };
+    }
+    this.applyPreviewTransform();
+  }
+
+  previewResetZoom() {
+    this.previewZoom = 1;
+    this.previewPan = { x: 0, y: 0 };
+    this.applyPreviewTransform();
+  }
+
+  applyPreviewTransform() {
+    const imgEl = document.getElementById('preview-full-img');
+    const zoomLabel = document.getElementById('preview-zoom-label');
+    const stage = document.getElementById('image-preview-stage');
+
+    if (zoomLabel) {
+      zoomLabel.textContent = `${Math.round(this.previewZoom * 100)}%`;
+    }
+    if (imgEl) {
+      imgEl.style.transform = `translate(${this.previewPan.x}px, ${this.previewPan.y}px) scale(${this.previewZoom})`;
+    }
+    if (stage) {
+      stage.style.cursor = this.previewZoom > 1 ? (this.isPanning ? 'grabbing' : 'grab') : 'default';
+    }
+  }
+
+  handlePreviewStageMouseDown(e) {
+    if (this.previewZoom <= 1) return;
+    if (e.target.closest('button')) return;
+    this.isPanning = true;
+    this.panStart = { x: e.clientX - this.previewPan.x, y: e.clientY - this.previewPan.y };
+    this.applyPreviewTransform();
+  }
+
+  handlePreviewStageMouseMove(e) {
+    if (!this.isPanning || this.previewZoom <= 1) return;
+    this.previewPan = {
+      x: e.clientX - this.panStart.x,
+      y: e.clientY - this.panStart.y
+    };
+    this.applyPreviewTransform();
+  }
+
+  handlePreviewStageMouseUp(e) {
+    if (this.isPanning) {
+      this.isPanning = false;
+      this.applyPreviewTransform();
+    }
+  }
+
+  handlePreviewTouchStart(e) {
+    if (e.touches.length === 1) {
+      this.touchStartPoint = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (this.previewZoom > 1) {
+        this.isPanning = true;
+        this.panStart = { x: e.touches[0].clientX - this.previewPan.x, y: e.touches[0].clientY - this.previewPan.y };
+      }
+    } else if (e.touches.length === 2) {
+      // Pinch to zoom start
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      this.touchStartDist = Math.hypot(dx, dy);
+    }
+  }
+
+  handlePreviewTouchMove(e) {
+    if (e.touches.length === 1 && this.isPanning && this.previewZoom > 1) {
+      e.preventDefault();
+      this.previewPan = {
+        x: e.touches[0].clientX - this.panStart.x,
+        y: e.touches[0].clientY - this.panStart.y
+      };
+      this.applyPreviewTransform();
+    } else if (e.touches.length === 2 && this.touchStartDist > 0) {
+      // Pinch zoom
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const ratio = dist / this.touchStartDist;
+      this.previewZoom = Math.min(4, Math.max(0.5, Math.round(this.previewZoom * ratio * 100) / 100));
+      this.touchStartDist = dist;
+      this.applyPreviewTransform();
+    }
+  }
+
+  handlePreviewTouchEnd(e) {
+    if (this.isPanning) {
+      this.isPanning = false;
+    }
+    if (e.changedTouches && e.changedTouches.length === 1 && this.previewZoom <= 1) {
+      // Detect swipe left or right
+      const endX = e.changedTouches[0].clientX;
+      const deltaX = endX - this.touchStartPoint.x;
+      if (Math.abs(deltaX) > 50) {
+        if (deltaX > 0) {
+          this.previewPrevImage();
+        } else {
+          this.previewNextImage();
+        }
+      }
+    }
+    this.touchStartDist = 0;
+  }
+
+  downloadActivePreviewImage() {
+    if (!this.activePreviewTaskId) return;
+    const task = this.store.getTask(this.activePreviewTaskId);
+    if (!task || !task.attachments || !task.attachments[this.activePreviewIndex]) return;
+    const att = task.attachments[this.activePreviewIndex];
+
+    const link = document.createElement('a');
+    link.href = `api.php?action=view_attachment&id=${att.id}&download=1`;
+    link.download = att.file_name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async deleteActivePreviewImage() {
+    if (!this.activePreviewTaskId) return;
+    const task = this.store.getTask(this.activePreviewTaskId);
+    if (!task || !task.attachments || !task.attachments[this.activePreviewIndex]) return;
+    const att = task.attachments[this.activePreviewIndex];
+
+    if (confirm(`Hapus gambar "${att.file_name}"?`)) {
+      await this.store.removeAttachmentFromTask(this.activePreviewTaskId, att.id);
+      this.showToastNotification('Gambar berhasil dihapus');
+
+      const updatedTask = this.store.getTask(this.activePreviewTaskId);
+      this.renderTaskAttachments(updatedTask);
+      this.renderCurrentView();
+
+      if (updatedTask && updatedTask.attachments && updatedTask.attachments.length > 0) {
+        if (this.activePreviewIndex >= updatedTask.attachments.length) {
+          this.activePreviewIndex = updatedTask.attachments.length - 1;
+        }
+        this.updatePreviewContent();
+      } else {
+        this.closeImagePreviewModal();
+      }
+    }
+  }
+
+  formatBytes(bytes, decimals = 1) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
   escapeHtml(str) {

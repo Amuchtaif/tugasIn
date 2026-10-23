@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TugasIn - Manajemen Tugas Kuliah & Proyek</title>
+  <meta name="description" content="Aplikasi web manajemen tugas kuliah dan proyek pribadi ala Notion dengan hierarki Semester, Mata Kuliah, Kanban, Kalender, dan Pengingat Telegram.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app-root">
+  <!-- SIDEBAR -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <a href="#" class="brand-badge" onclick="window.app.navigateTo('today'); return false;">
+        <div class="brand-logo-mark">T</div>
+        <span class="brand-name">TugasIn</span>
+      </a>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.openQuickAddModal()" title="Quick Add Task (Q)">
+        <span class="mono-label" style="color: var(--color-tertiary);">[Q]</span>
+      </button>
+    </div>
+
+    <div class="sidebar-content">
+      <!-- Main Views -->
+      <div>
+        <div class="nav-section-title">NAVIGASI UTAMA</div>
+        <div class="nav-item sidebar-nav-item active" data-view="today" onclick="window.app.navigateTo('today')">
+          <div class="nav-item-left">
+            <span>⚡</span>
+            <span>Hari Ini & Minggu Ini</span>
+          </div>
+          <span class="nav-counter" id="side-count-today">0</span>
+        </div>
+        <div class="nav-item sidebar-nav-item" data-view="all" onclick="window.app.navigateTo('all')">
+          <div class="nav-item-left">
+            <span>📋</span>
+            <span>Semua Tugas</span>
+          </div>
+          <span class="nav-counter" id="side-count-all">0</span>
+        </div>
+        <div class="nav-item sidebar-nav-item" data-view="project" onclick="window.app.navigateTo('project')">
+          <div class="nav-item-left">
+            <span>🚀</span>
+            <span>Proyek & Tugas Besar</span>
+          </div>
+        </div>
+        <div class="nav-item sidebar-nav-item" data-view="archive" onclick="window.app.navigateTo('archive')">
+          <div class="nav-item-left">
+            <span>📦</span>
+            <span>Arsip Semester</span>
+          </div>
+        </div>
+        <div class="nav-item sidebar-nav-item" data-view="trash" onclick="window.app.navigateTo('trash')">
+          <div class="nav-item-left">
+            <span>🗑️</span>
+            <span>Sampah</span>
+          </div>
+          <span class="nav-counter" id="side-count-trash">0</span>
+        </div>
+      </div>
+
+      <!-- Semesters and Courses Tree -->
+      <div>
+        <div class="nav-section-title">
+          <span>SEMESTER & MATA KULIAH</span>
+          <button class="btn btn-ghost btn-sm" onclick="window.app.openSemesterModal()" title="Tambah Semester Baru" style="padding: 0 4px;">
+            +
+          </button>
+        </div>
+        <div id="semester-tree-container" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar Footer -->
+    <div class="sidebar-footer">
+      <div class="nav-item sidebar-nav-item" data-view="settings" onclick="window.app.navigateTo('settings')">
+        <div class="nav-item-left">
+          <span>⚙️</span>
+          <span>Pengaturan & Telegram</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTAINER -->
+  <main id="main-container">
+    <!-- TOP APP BAR -->
+    <header id="top-bar">
+      <div class="top-bar-left">
+        <button id="mobile-menu-btn" class="btn btn-secondary btn-icon mobile-menu-btn" title="Buka Navigasi">
+          ☰
+        </button>
+        <div class="breadcrumb-path">
+          <span id="breadcrumb-parent" class="mono-label">TugasIn</span>
+          <span>/</span>
+          <span id="breadcrumb-title" class="breadcrumb-active">Hari Ini & Minggu Ini</span>
+        </div>
+      </div>
+
+      <!-- Quick Search Bar -->
+      <div class="top-bar-center">
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="global-search" placeholder="Cari tugas, tag, atau mata kuliah...">
+          <span class="kbd-shortcut">/</span>
+        </div>
+      </div>
+
+      <!-- Top Bar Right: Stats & Primary CTA -->
+      <div class="top-bar-right">
+        <div class="stats-strip">
+          <div class="stat-pill" title="Tugas due hari ini">
+            <span>Hari ini:</span>
+            <span class="stat-num" id="stat-today-count">0</span>
+          </div>
+          <div class="stat-pill" title="Tugas melewati deadline">
+            <span>Overdue:</span>
+            <span class="stat-num overdue" id="stat-overdue-count">0</span>
+          </div>
+          <div class="stat-pill" title="Tugas sedang dikerjakan">
+            <span>In Prog:</span>
+            <span class="stat-num" id="stat-inprog-count">0</span>
+          </div>
+        </div>
+
+        <!-- Primary Action Button: Single Lime Signal from design.md -->
+        <button id="main-add-task-btn" class="btn btn-primary" onclick="window.app.openQuickAddModal()">
+          + Task Baru
+        </button>
+      </div>
+    </header>
+
+    <!-- VIEW TOOLBAR -->
+    <section class="view-toolbar">
+      <div class="toolbar-left">
+        <!-- View mode tabs: List / Kanban / Calendar -->
+        <div class="view-tabs">
+          <button class="tab-btn active" data-mode="list" onclick="window.app.setViewMode('list')">
+            ☰ List
+          </button>
+          <button class="tab-btn" data-mode="kanban" onclick="window.app.setViewMode('kanban')">
+            ▥ Kanban
+          </button>
+          <button class="tab-btn" data-mode="calendar" onclick="window.app.setViewMode('calendar')">
+            📅 Kalender
+          </button>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-group">
+          <select id="filter-priority" class="filter-select" onchange="window.app.filterPriority = this.value; window.app.renderCurrentView();">
+            <option value="">Semua Prioritas</option>
+            <option value="Mendesak">Mendesak</option>
+            <option value="Tinggi">Tinggi</option>
+            <option value="Sedang">Sedang</option>
+            <option value="Rendah">Rendah</option>
+          </select>
+
+          <select id="filter-status" class="filter-select" onchange="window.app.filterStatus = this.value; window.app.renderCurrentView();">
+            <option value="">Semua Status</option>
+            <option value="st_todo">Belum Mulai</option>
+            <option value="st_prog">Sedang Dikerjakan</option>
+            <option value="st_rev">Butuh Review</option>
+            <option value="st_done">Selesai</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Quick Add inline field -->
+      <form class="quick-add-bar" onsubmit="event.preventDefault(); const inp = this.querySelector('input'); if(inp.value.trim()) { window.store.addTask({ judul: inp.value.trim() }); inp.value = ''; }">
+        <span class="mono-label" style="color: var(--color-tertiary);">+</span>
+        <input type="text" class="quick-add-input" placeholder="Quick add: ketik judul tugas dan tekan Enter...">
+        <span class="mono-label" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
+      </form>
+    </section>
+
+    <!-- DYNAMIC VIEW BODY -->
+    <div id="view-body" class="view-body">
+      <!-- Injected by list, kanban, calendar, or settings view -->
+    </div>
+  </main>
+</div>
+
+<!-- IN-APP TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- MODAL: QUICK ADD TASK (< 10 detik!) -->
+<div id="quick-add-modal" class="modal-overlay">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="h2">Tambah Task Cepat</div>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('quick-add-modal')">✕</button>
+    </div>
+    <form onsubmit="window.app.submitQuickAdd(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Judul Tugas *</label>
+          <input type="text" id="qa-title" required placeholder="Contoh: Laporan Praktikum 3 Basis Data" autofocus>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Mata Kuliah</label>
+            <select id="qa-course"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status Awal</label>
+            <select id="qa-status"></select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Prioritas</label>
+            <select id="qa-priority">
+              <option value="Sedang">Sedang</option>
+              <option value="Tinggi">Tinggi</option>
+              <option value="Mendesak">Mendesak</option>
+              <option value="Rendah">Rendah</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deadline</label>
+            <input type="datetime-local" id="qa-deadline">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Tautkan ke Proyek (Opsional)</label>
+          <select id="qa-project"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('quick-add-modal')">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: DETAIL & EDIT TASK -->
+<div id="task-detail-modal" class="modal-overlay">
+  <div class="modal-dialog modal-dialog-large">
+    <div class="modal-header">
+      <div class="h2" id="task-modal-title" style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('task-detail-modal')">✕</button>
+    </div>
+    <form onsubmit="window.app.saveTaskDetail(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Judul Tugas</label>
+          <input type="text" id="edit-task-title" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Deskripsi / Catatan Blok</label>
+          <textarea id="edit-task-desc" rows="3" placeholder="Tulis instruksi tugas, kriteria pengumpulan, link referensi..."></textarea>
+        </div>
+
+        <div class="form-row-3">
+          <div class="form-group">
+            <label class="form-label">Mata Kuliah</label>
+            <select id="edit-task-course"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="edit-task-status"></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Prioritas</label>
+            <select id="edit-task-priority">
+              <option value="Mendesak">Mendesak</option>
+              <option value="Tinggi">Tinggi</option>
+              <option value="Sedang">Sedang</option>
+              <option value="Rendah">Rendah</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Deadline (Tanggal & Jam)</label>
+            <input type="datetime-local" id="edit-task-deadline">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tag / Label (Pisahkan koma)</label>
+            <input type="text" id="edit-task-tags" placeholder="Praktikum, Tugas Besar, Presentasi">
+          </div>
+        </div>
+
+        <!-- Custom Field (URL) -->
+        <div class="form-group">
+          <label class="form-label">Tautan Eksternal (GitHub / Figma / Google Drive)</label>
+          <input type="text" id="edit-task-custom-url" placeholder="https://...">
+        </div>
+
+        <!-- Subtasks Checklist Section -->
+        <div class="form-group">
+          <label class="form-label">Subtask & Checklist</label>
+          <div class="subtask-builder">
+            <div id="subtask-editor-list" class="subtask-list"></div>
+            <div style="display: flex; gap: 8px; margin-top: 6px;">
+              <input type="text" id="new-subtask-input" placeholder="Tambah subtask baru..." style="height: 32px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); window.app.addSubtask();}">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.addSubtask()">+ Tambah</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" onclick="window.app.deleteTaskFromModal()">
+          Pindahkan ke Sampah
+        </button>
+        <div style="flex: 1;"></div>
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('task-detail-modal')">Tutup</button>
+        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: SEMESTER -->
+<div id="semester-modal" class="modal-overlay">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="h2">Kelola Semester</div>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('semester-modal')">✕</button>
+    </div>
+    <form onsubmit="window.app.saveSemester(event)">
+      <input type="hidden" id="sem-modal-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Nama Semester *</label>
+          <input type="text" id="sem-modal-name" required placeholder="Contoh: Semester 5 (Ganjil 2026/2027)">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tanggal Mulai</label>
+            <input type="date" id="sem-modal-start">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tanggal Selesai</label>
+            <input type="date" id="sem-modal-end">
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+          <input type="checkbox" id="sem-modal-archive" style="width: auto;">
+          <label for="sem-modal-archive" style="font-size: 0.88rem; cursor: pointer;">Arsipkan semester ini (sembunyikan dari tampilan utama)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('semester-modal')">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Semester</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: COURSE -->
+<div id="course-modal" class="modal-overlay">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="h2">Kelola Mata Kuliah</div>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('course-modal')">✕</button>
+    </div>
+    <form onsubmit="window.app.saveCourse(event)">
+      <input type="hidden" id="course-modal-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Nama Mata Kuliah *</label>
+          <input type="text" id="course-modal-name" required placeholder="Contoh: Pemrograman Web & Mobile">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Kode MK</label>
+            <input type="text" id="course-modal-code" placeholder="IF3101">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SKS</label>
+            <input type="number" id="course-modal-sks" min="1" max="6" value="3">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Dosen Pengampu</label>
+          <input type="text" id="course-modal-lecturer" placeholder="Contoh: Dr. Ir. Budi Santoso">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Semester</label>
+          <select id="course-modal-sem"></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('course-modal')">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Mata Kuliah</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: PROJECT -->
+<div id="project-modal" class="modal-overlay">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="h2">Kelola Proyek & Tugas Besar</div>
+      <button class="btn btn-ghost btn-sm" onclick="window.app.closeModal('project-modal')">✕</button>
+    </div>
+    <form onsubmit="window.app.saveProject(event)">
+      <input type="hidden" id="proj-modal-id">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Nama Proyek *</label>
+          <input type="text" id="proj-modal-name" required placeholder="Contoh: Tugas Besar: Portal E-Commerce">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Deskripsi</label>
+          <textarea id="proj-modal-desc" rows="3" placeholder="Penjelasan ruang lingkup proyek..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Target Deadline</label>
+            <input type="date" id="proj-modal-deadline">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select id="proj-modal-status">
+              <option value="Perencanaan">Perencanaan</option>
+              <option value="Sedang Berjalan">Sedang Berjalan</option>
+              <option value="Tahap Uji">Tahap Uji</option>
+              <option value="Selesai">Selesai</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('project-modal')">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan Proyek</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Core Scripts -->
+<script src="js/store.js"></script>
+<script src="js/telegram.js"></script>
+<script src="js/list-view.js"></script>
+<script src="js/kanban-view.js"></script>
+<script src="js/calendar-view.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

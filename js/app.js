@@ -49,6 +49,7 @@ class App {
     });
 
     this.bindEvents();
+    this.initFormControls();
     this.setupAttachmentDropzone();
     this.updateDbStatusUi();
     this.renderSidebar();
@@ -170,7 +171,89 @@ class App {
         this.renderCurrentView();
       });
     }
+  }
 
+  // --- FORM CONTROLS INITIALIZATION (TASK 1 - 6) ---
+  initFormControls() {
+    if (!window.CustomSelect) return;
+
+    // 1. Toolbar filters
+    CustomSelect.enhance('#filter-priority', {
+      size: 'sm',
+      placeholder: 'Semua Prioritas',
+      onChange: (val) => {
+        this.filterPriority = val;
+        this.renderCurrentView();
+      }
+    });
+
+    CustomSelect.enhance('#filter-status', {
+      size: 'sm',
+      placeholder: 'Semua Status',
+      onChange: (val) => {
+        this.filterStatus = val;
+        this.renderCurrentView();
+      }
+    });
+
+    // 2. Quick Add Modal Selects
+    CustomSelect.enhance('#qa-course', {
+      size: 'md',
+      searchable: true,
+      placeholder: 'Pilih Mata Kuliah'
+    });
+
+    CustomSelect.enhance('#qa-status', {
+      size: 'md',
+      placeholder: 'Pilih Status Awal'
+    });
+
+    CustomSelect.enhance('#qa-priority', {
+      size: 'md',
+      placeholder: 'Pilih Prioritas'
+    });
+
+    CustomSelect.enhance('#qa-project', {
+      size: 'md',
+      searchable: true,
+      placeholder: '(Opsional) Tanpa Proyek'
+    });
+
+    // 3. Edit Task Modal Selects
+    CustomSelect.enhance('#edit-task-course', {
+      size: 'md',
+      searchable: true,
+      placeholder: 'Pilih Mata Kuliah'
+    });
+
+    CustomSelect.enhance('#edit-task-status', {
+      size: 'md',
+      placeholder: 'Pilih Status'
+    });
+
+    CustomSelect.enhance('#edit-task-priority', {
+      size: 'md',
+      placeholder: 'Pilih Prioritas'
+    });
+
+    // 4. Course & Project Modal Selects
+    CustomSelect.enhance('#course-modal-sem', {
+      size: 'md',
+      placeholder: 'Pilih Semester'
+    });
+
+    CustomSelect.enhance('#proj-modal-status', {
+      size: 'md',
+      placeholder: 'Status Proyek'
+    });
+
+    // 5. Multi-Select Tags Input (Task 5.5)
+    const tagInputEl = document.getElementById('edit-task-tags');
+    if (tagInputEl && window.TagInput && !this.taskTagInput) {
+      this.taskTagInput = new TagInput(tagInputEl, {
+        placeholder: 'Ketik tag lalu tekan Enter...'
+      });
+    }
   }
 
   // --- SIDEBAR MANAGEMENT (Collapse / Expand & Responsive Mobile Drawer) ---
@@ -251,14 +334,97 @@ class App {
     this.setTheme(saved, false);
   }
 
-  toggleTheme() {
+  toggleTheme(event = null) {
+    if (this.isThemeTransitioning) return;
     const current = document.documentElement.getAttribute('data-theme') || 'light';
     const next = current === 'dark' ? 'light' : 'dark';
-    this.setTheme(next, true);
+    this.setTheme(next, true, event);
   }
 
-  setTheme(themeName, notify = true) {
+  setTheme(themeName, notify = true, event = null) {
     const target = themeName === 'dark' ? 'dark' : 'light';
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+
+    // If already on target theme and initialized, do nothing
+    if (current === target && document.documentElement.hasAttribute('data-theme') && notify) {
+      return;
+    }
+
+    // Initial load: apply without any transition animation
+    if (!notify) {
+      this.applyThemeDom(target, false);
+      return;
+    }
+
+    const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReduced) {
+      this.applyThemeDom(target, true);
+      return;
+    }
+
+    this.isThemeTransitioning = true;
+    this.animateThemeButton();
+
+    // Check if View Transitions API is supported (Chrome/Edge/Chromium)
+    if (typeof document.startViewTransition === 'function') {
+      let x = window.innerWidth - 60;
+      let y = 30;
+
+      if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+        x = event.clientX;
+        y = event.clientY;
+      } else {
+        const btn = document.getElementById('theme-toggle-btn');
+        if (btn) {
+          const rect = btn.getBoundingClientRect();
+          x = rect.left + rect.width / 2;
+          y = rect.top + rect.height / 2;
+        }
+      }
+
+      const endRadius = Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y)
+      );
+
+      const transition = document.startViewTransition(() => {
+        this.applyThemeDom(target, true);
+      });
+
+      transition.ready.then(() => {
+        const animation = document.documentElement.animate(
+          {
+            clipPath: [
+              `circle(0px at ${x}px ${y}px)`,
+              `circle(${endRadius}px at ${x}px ${y}px)`
+            ]
+          },
+          {
+            duration: 420,
+            easing: 'cubic-bezier(0.2, 0, 0, 1)',
+            pseudoElement: '::view-transition-new(root)'
+          }
+        );
+
+        animation.onfinish = () => {
+          this.isThemeTransitioning = false;
+        };
+      }).catch(() => {
+        this.isThemeTransitioning = false;
+      });
+    } else {
+      // Universal Smooth CSS Transition Fallback
+      document.documentElement.classList.add('theme-transitioning');
+      this.applyThemeDom(target, true);
+      setTimeout(() => {
+        document.documentElement.classList.remove('theme-transitioning');
+        this.isThemeTransitioning = false;
+      }, 400);
+    }
+  }
+
+  applyThemeDom(target, notify = true) {
     document.documentElement.setAttribute('data-theme', target);
     localStorage.setItem('tugasin_theme', target);
 
@@ -286,6 +452,17 @@ class App {
     if (this.currentView === 'settings') {
       this.renderSettingsView();
     }
+  }
+
+  animateThemeButton() {
+    const icon = document.getElementById('theme-toggle-icon');
+    if (!icon) return;
+    icon.classList.remove('anim-spin');
+    void icon.offsetWidth; // Force reflow
+    icon.classList.add('anim-spin');
+    setTimeout(() => {
+      icon.classList.remove('anim-spin');
+    }, 500);
   }
 
   showToastNotification(msg) {
@@ -524,7 +701,10 @@ class App {
     this.navigateTo('today');
     this.filterStatus = '';
     const filterEl = document.getElementById('filter-status');
-    if (filterEl) filterEl.value = '';
+    if (filterEl) {
+      filterEl.value = '';
+      if (window.CustomSelect) window.CustomSelect.syncAll();
+    }
     this.renderCurrentView();
     this.showToastNotification('Menampilkan tugas dengan deadline hari ini & minggu ini');
   }
@@ -533,7 +713,10 @@ class App {
     this.navigateTo('all');
     this.filterStatus = 'st_prog';
     const filterEl = document.getElementById('filter-status');
-    if (filterEl) filterEl.value = 'st_prog';
+    if (filterEl) {
+      filterEl.value = 'st_prog';
+      if (window.CustomSelect) window.CustomSelect.syncAll();
+    }
     this.renderCurrentView();
     this.showToastNotification('Menampilkan tugas yang sedang dikerjakan (On Going)');
   }
@@ -879,7 +1062,7 @@ class App {
 
           <div class="theme-selector-grid">
             <!-- Glassline Light Card -->
-            <div class="theme-choice-card ${currentTheme === 'light' ? 'selected' : ''}" onclick="window.app.setTheme('light')">
+            <div class="theme-choice-card ${currentTheme === 'light' ? 'selected' : ''}" onclick="window.app.setTheme('light', true, event)">
               <div class="theme-choice-header">
                 <div class="theme-choice-title">
                   <span class="theme-choice-radio"></span>
@@ -900,7 +1083,7 @@ class App {
             </div>
 
             <!-- Graphite Dark Card -->
-            <div class="theme-choice-card ${currentTheme === 'dark' ? 'selected' : ''}" onclick="window.app.setTheme('dark')">
+            <div class="theme-choice-card ${currentTheme === 'dark' ? 'selected' : ''}" onclick="window.app.setTheme('dark', true, event)">
               <div class="theme-choice-header">
                 <div class="theme-choice-title">
                   <span class="theme-choice-radio"></span>
@@ -969,12 +1152,11 @@ class App {
               <div id="tg-detect-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 4px;"></div>
             </div>
 
-            <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0;">
-              <input type="checkbox" id="setting-tg-enabled" ${settings.telegram_enabled ? 'checked' : ''} style="width: auto; cursor: pointer;">
-              <label for="setting-tg-enabled" style="font-size: 0.88rem; cursor: pointer; user-select: none;">
-                Aktifkan pengiriman pengingat deadline otomatis via Telegram
-              </label>
-            </div>
+            <label class="custom-switch" style="padding: 6px 0;">
+              <input type="checkbox" id="setting-tg-enabled" ${settings.telegram_enabled ? 'checked' : ''}>
+              <span class="custom-switch-track"><span class="custom-switch-thumb"></span></span>
+              <span class="custom-switch-label">Aktifkan pengiriman pengingat deadline otomatis via Telegram</span>
+            </label>
 
             <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
               <button type="submit" class="btn btn-primary">
@@ -1162,7 +1344,10 @@ class App {
   openQuickAddModalWithStatus(statusId) {
     this.openQuickAddModal();
     const statusSelect = document.getElementById('qa-status');
-    if (statusSelect) statusSelect.value = statusId;
+    if (statusSelect) {
+      statusSelect.value = statusId;
+      if (window.CustomSelect) window.CustomSelect.syncAll();
+    }
   }
 
   openQuickAddModalWithDate(dateStr) {
@@ -1174,7 +1359,10 @@ class App {
   openQuickAddModalWithProject(projectId) {
     this.openQuickAddModal();
     const projSelect = document.getElementById('qa-project');
-    if (projSelect) projSelect.value = projectId;
+    if (projSelect) {
+      projSelect.value = projectId;
+      if (window.CustomSelect) window.CustomSelect.syncAll();
+    }
   }
 
   populateQuickAddForm() {
@@ -1182,7 +1370,7 @@ class App {
     const courseSelect = document.getElementById('qa-course');
     if (courseSelect) {
       const courses = this.store.getCourses();
-      courseSelect.innerHTML = courses.map(c => `<option value="${c.id}">${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
+      courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" data-badge="${this.escapeHtml(c.kode)}">${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
       if (this.activeCourseId) courseSelect.value = this.activeCourseId;
     }
 
@@ -1198,7 +1386,7 @@ class App {
     if (projSelect) {
       const projects = this.store.getProjects();
       projSelect.innerHTML = '<option value="">(Opsional) Tanpa Proyek</option>' +
-        projects.map(p => `<option value="${p.id}">${this.escapeHtml(p.nama)}</option>`).join('');
+        projects.map(p => `<option value="${p.id}" data-dot="#2563EB">${this.escapeHtml(p.nama)}</option>`).join('');
       if (this.activeProjectId) projSelect.value = this.activeProjectId;
     }
 
@@ -1215,6 +1403,10 @@ class App {
 
     const titleInput = document.getElementById('qa-title');
     if (titleInput) titleInput.value = '';
+
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
   }
 
   submitQuickAdd(e) {
@@ -1256,7 +1448,7 @@ class App {
     // Course
     const courseSelect = document.getElementById('edit-task-course');
     const courses = this.store.getCourses();
-    courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" ${c.id === task.course_id ? 'selected' : ''}>${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
+    courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" data-badge="${this.escapeHtml(c.kode)}" ${c.id === task.course_id ? 'selected' : ''}>${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
 
     // Status
     const statusSelect = document.getElementById('edit-task-status');
@@ -1280,8 +1472,17 @@ class App {
       deadlineInput.value = '';
     }
 
-    // Tags
-    document.getElementById('edit-task-tags').value = (task.tags || []).join(', ');
+    // Tags (Task 5.5)
+    if (this.taskTagInput) {
+      this.taskTagInput.setTags(task.tags || []);
+    } else {
+      document.getElementById('edit-task-tags').value = (task.tags || []).join(', ');
+    }
+
+    // Sync all CustomSelect instances to reflect current values
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
 
     // Custom Field URL
     document.getElementById('edit-task-custom-url').value = (task.custom_values && task.custom_values.repository_url) || (task.custom_values && task.custom_values.figma_url) || '';
@@ -1303,7 +1504,10 @@ class App {
     subtasks.forEach((st, idx) => {
       html += `
         <div class="subtask-item">
-          <input type="checkbox" ${st.selesai ? 'checked' : ''} onchange="window.app.toggleSubtask(${idx})">
+          <label class="custom-checkbox">
+            <input type="checkbox" ${st.selesai ? 'checked' : ''} onchange="window.app.toggleSubtask(${idx})">
+            <span class="custom-checkbox-box"><i class="fa-solid fa-check custom-checkbox-check"></i></span>
+          </label>
           <input type="text" class="subtask-title-input ${st.selesai ? 'done' : ''}" value="${this.escapeHtml(st.judul)}" onchange="window.app.updateSubtaskTitle(${idx}, this.value)">
           <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteSubtask(${idx})" style="color: var(--color-danger);" title="Hapus Subtask"><i class="fa-solid fa-xmark"></i></button>
         </div>
@@ -1445,6 +1649,10 @@ class App {
       semSelect.value = defaultSemId;
     }
 
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
+
     this.openModal('course-modal');
   }
 
@@ -1475,7 +1683,11 @@ class App {
     document.getElementById('proj-modal-name').value = proj ? proj.nama : '';
     document.getElementById('proj-modal-desc').value = proj ? proj.deskripsi : '';
     document.getElementById('proj-modal-deadline').value = proj && proj.deadline ? proj.deadline.substring(0, 10) : '';
-    document.getElementById('proj-modal-status').value = proj ? proj.status : 'Berjalan';
+    document.getElementById('proj-modal-status').value = proj ? proj.status : 'Perencanaan';
+
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
 
     this.openModal('project-modal');
   }

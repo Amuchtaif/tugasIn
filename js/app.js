@@ -36,11 +36,13 @@ class App {
     this.init();
   }
 
-  init() {
+  async init() {
     this.initTheme();
+    this.initSidebar();
 
     // Subscribe to store updates
     this.store.subscribe(() => {
+      this.updateDbStatusUi();
       this.renderSidebar();
       this.renderTopStats();
       this.renderCurrentView();
@@ -48,9 +50,29 @@ class App {
 
     this.bindEvents();
     this.setupAttachmentDropzone();
+    this.updateDbStatusUi();
     this.renderSidebar();
     this.renderTopStats();
     this.renderCurrentView();
+
+    // Await store's initial fetch from MySQL
+    if (this.store.initPromise) {
+      await this.store.initPromise;
+      this.updateDbStatusUi();
+    }
+  }
+
+  updateDbStatusUi() {
+    const dot = document.getElementById('sidebar-db-dot');
+    if (dot) {
+      if (this.store.dbConnected) {
+        dot.className = 'status-dot active';
+        dot.title = 'Terhubung ke MySQL (tugasin_db)';
+      } else {
+        dot.className = 'status-dot danger';
+        dot.title = 'Terputus dari MySQL: ' + (this.store.lastError || '');
+      }
+    }
   }
 
   bindEvents() {
@@ -93,6 +115,13 @@ class App {
         if (e.key === 'Escape') {
           this.closeAllModals();
         }
+        return;
+      }
+
+      // Keyboard shortcut for sidebar toggle: Ctrl+B or Cmd+B
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        this.toggleSidebar();
         return;
       }
 
@@ -142,14 +171,77 @@ class App {
       });
     }
 
-    // Mobile menu toggle
-    const mobileBtn = document.getElementById('mobile-menu-btn');
-    const sidebar = document.getElementById('sidebar');
-    if (mobileBtn && sidebar) {
-      mobileBtn.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-      });
+  }
+
+  // --- SIDEBAR MANAGEMENT (Collapse / Expand & Responsive Mobile Drawer) ---
+  initSidebar() {
+    const isMobile = window.innerWidth <= 900;
+    if (!isMobile) {
+      const isCollapsed = localStorage.getItem('tugasin_sidebar_collapsed') === 'true';
+      this.setSidebarCollapsed(isCollapsed, false);
+    } else {
+      document.documentElement.classList.remove('sidebar-init-collapsed');
     }
+  }
+
+  toggleSidebar() {
+    const isMobile = window.innerWidth <= 900;
+    if (isMobile) {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebar-overlay');
+      const isOpen = sidebar ? sidebar.classList.contains('open') : false;
+      if (isOpen) {
+        this.closeMobileSidebar();
+      } else {
+        if (sidebar) sidebar.classList.add('open');
+        if (overlay) overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+    } else {
+      const appRoot = document.getElementById('app-root');
+      const isCurrentlyCollapsed = appRoot ? appRoot.classList.contains('sidebar-collapsed') : false;
+      this.setSidebarCollapsed(!isCurrentlyCollapsed, true);
+    }
+  }
+
+  setSidebarCollapsed(collapsed, notify = false) {
+    document.documentElement.classList.remove('sidebar-init-collapsed');
+    const appRoot = document.getElementById('app-root');
+    const sidebar = document.getElementById('sidebar');
+    const toggleBtn = document.getElementById('sidebar-toggle-btn') || document.getElementById('mobile-menu-btn');
+
+    if (collapsed) {
+      if (appRoot) appRoot.classList.add('sidebar-collapsed');
+      if (sidebar) sidebar.classList.add('collapsed');
+      localStorage.setItem('tugasin_sidebar_collapsed', 'true');
+      if (toggleBtn) {
+        toggleBtn.title = 'Tampilkan Sidebar (Ctrl+B)';
+        toggleBtn.classList.add('active');
+        toggleBtn.setAttribute('aria-expanded', 'false');
+      }
+    } else {
+      if (appRoot) appRoot.classList.remove('sidebar-collapsed');
+      if (sidebar) sidebar.classList.remove('collapsed');
+      localStorage.setItem('tugasin_sidebar_collapsed', 'false');
+      if (toggleBtn) {
+        toggleBtn.title = 'Sembunyikan Sidebar (Ctrl+B)';
+        toggleBtn.classList.remove('active');
+        toggleBtn.setAttribute('aria-expanded', 'true');
+      }
+    }
+
+    // Trigger window resize so any responsive components recalculate
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 300);
+  }
+
+  closeMobileSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+    document.body.style.overflow = '';
   }
 
   // --- THEME MANAGEMENT (Glassline Light Mode / Graphite Dark Mode) ---
@@ -178,7 +270,7 @@ class App {
     const icon = document.getElementById('theme-toggle-icon');
     const btn = document.getElementById('theme-toggle-btn');
     if (icon) {
-      icon.textContent = target === 'dark' ? '☀️' : '🌙';
+      icon.innerHTML = `<i class="fa-solid ${target === 'dark' ? 'fa-sun' : 'fa-moon'}"></i>`;
     }
     if (btn) {
       btn.title = target === 'dark' ? 'Beralih ke Mode Terang (Glassline)' : 'Beralih ke Mode Gelap (Graphite)';
@@ -204,7 +296,7 @@ class App {
     toast.innerHTML = `
       <div style="flex: 1; display: flex; align-items: center; justify-content: space-between;">
         <span style="font-size: 0.88rem; font-weight: 500;">${this.escapeHtml(msg)}</span>
-        <button class="btn btn-ghost btn-icon-sm" onclick="this.closest('.toast').remove()">✕</button>
+        <button class="btn btn-ghost btn-icon-sm" onclick="this.closest('.toast').remove()"><i class="fa-solid fa-xmark"></i></button>
       </div>
     `;
     container.appendChild(toast);
@@ -229,8 +321,7 @@ class App {
     }
 
     // Close mobile sidebar if open
-    const sidebar = document.getElementById('sidebar');
-    if (sidebar) sidebar.classList.remove('open');
+    this.closeMobileSidebar();
 
     this.renderSidebar();
     this.renderCurrentView();
@@ -281,12 +372,12 @@ class App {
         <div class="semester-block">
           <div class="semester-header" onclick="window.app.toggleSemesterCollapse('${sem.id}')">
             <div class="semester-title">
-              <span style="color: ${sem.warna || 'var(--color-primary)'}">◆</span>
+              <i class="fa-solid fa-graduation-cap" style="color: ${sem.warna || 'var(--color-primary)'}; font-size: 0.85rem;"></i>
               <span>${this.escapeHtml(sem.nama)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 4px;">
               <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openSemesterModal('${sem.id}')" title="Pengaturan Semester">
-                ⚙
+                <i class="fa-solid fa-gear"></i>
               </button>
             </div>
           </div>
@@ -300,7 +391,7 @@ class App {
         treeHtml += `
           <div class="course-item ${isActive ? 'active' : ''}" onclick="window.app.navigateTo('course', { courseId: '${course.id}' })">
             <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <span style="color: ${course.warna || 'var(--color-secondary)'}">●</span>
+              <i class="fa-solid fa-book" style="color: ${course.warna || 'var(--color-secondary)'}; font-size: 0.72rem;"></i>
               <span class="course-code-tag">${this.escapeHtml(course.kode)}</span>
               <span>${this.escapeHtml(course.nama)}</span>
             </div>
@@ -311,7 +402,7 @@ class App {
 
       treeHtml += `
             <button class="btn btn-ghost btn-sm" style="width: 100%; justify-content: flex-start; margin-top: 4px; color: var(--color-muted);" onclick="window.app.openCourseModal(null, '${sem.id}')">
-              + Mata Kuliah
+              <i class="fa-solid fa-plus"></i> Mata Kuliah
             </button>
           </div>
         </div>
@@ -344,6 +435,107 @@ class App {
 
     const statInProgEl = document.getElementById('stat-inprog-count');
     if (statInProgEl) statInProgEl.textContent = inProgCount;
+
+    this.updateGreetingSection();
+  }
+
+  // --- GREETING & REMINDER HERO SECTION ---
+  updateGreetingSection() {
+    const greetingSec = document.getElementById('greeting-section');
+    if (!greetingSec) return;
+
+    // Time-based greeting
+    const now = new Date();
+    const hour = now.getHours();
+    let timeGreeting = 'Selamat Malam';
+    let timeIcon = 'fa-moon';
+
+    if (hour >= 4 && hour < 11) {
+      timeGreeting = 'Selamat Pagi';
+      timeIcon = 'fa-cloud-sun';
+    } else if (hour >= 11 && hour < 15) {
+      timeGreeting = 'Selamat Siang';
+      timeIcon = 'fa-sun';
+    } else if (hour >= 15 && hour < 18) {
+      timeGreeting = 'Selamat Sore';
+      timeIcon = 'fa-cloud-sun';
+    } else {
+      timeGreeting = 'Selamat Malam';
+      timeIcon = 'fa-moon';
+    }
+
+    const titleEl = document.getElementById('greeting-title-text');
+    if (titleEl) {
+      titleEl.textContent = `${timeGreeting}, Andi Muchtaif!`;
+    }
+
+    const iconEl = document.getElementById('greeting-time-icon');
+    if (iconEl) {
+      iconEl.className = `fa-solid ${timeIcon}`;
+    }
+
+    const dateEl = document.getElementById('greeting-date-text');
+    if (dateEl) {
+      const dateStr = now.toLocaleDateString('id-ID', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+      dateEl.textContent = dateStr;
+    }
+
+    // Task counts
+    const all = this.store.getTasks();
+    const todayTasks = this.store.getTasks({ dueTodayOnly: true });
+    // Unfinished tasks due today
+    const unfinishedToday = todayTasks.filter(t => {
+      const s = this.store.getStatus(t.status_id);
+      return !s || !s.apakah_selesai;
+    });
+
+    const ongoingTasks = all.filter(t => {
+      const s = this.store.getStatus(t.status_id);
+      if (!s) return false;
+      return s.id === 'st_prog' || s.nama.toLowerCase().includes('kerja') || s.nama.toLowerCase().includes('progress');
+    });
+
+    const todayCountEl = document.getElementById('reminder-today-count');
+    if (todayCountEl) {
+      todayCountEl.textContent = unfinishedToday.length;
+    }
+
+    const ongoingCountEl = document.getElementById('reminder-ongoing-count');
+    if (ongoingCountEl) {
+      ongoingCountEl.textContent = ongoingTasks.length;
+    }
+
+    const deadlineCard = document.getElementById('reminder-card-deadline');
+    if (deadlineCard) {
+      if (unfinishedToday.length > 0) {
+        deadlineCard.classList.add('has-urgent');
+      } else {
+        deadlineCard.classList.remove('has-urgent');
+      }
+    }
+  }
+
+  filterByTodayDeadline() {
+    this.navigateTo('today');
+    this.filterStatus = '';
+    const filterEl = document.getElementById('filter-status');
+    if (filterEl) filterEl.value = '';
+    this.renderCurrentView();
+    this.showToastNotification('Menampilkan tugas dengan deadline hari ini & minggu ini');
+  }
+
+  filterByOngoing() {
+    this.navigateTo('all');
+    this.filterStatus = 'st_prog';
+    const filterEl = document.getElementById('filter-status');
+    if (filterEl) filterEl.value = 'st_prog';
+    this.renderCurrentView();
+    this.showToastNotification('Menampilkan tugas yang sedang dikerjakan (On Going)');
   }
 
   // --- RENDER CURRENT VIEW ---
@@ -351,6 +543,64 @@ class App {
     const titleEl = document.getElementById('breadcrumb-title');
     const subtitleEl = document.getElementById('breadcrumb-parent');
     const toolbar = document.querySelector('.view-toolbar');
+    const container = document.getElementById('view-body');
+    const greetingSec = document.getElementById('greeting-section');
+
+    // Toggle Greeting Section visibility: show on task & project views, hide on settings, archive, trash
+    if (greetingSec) {
+      if (['today', 'all', 'course', 'project'].includes(this.currentView)) {
+        greetingSec.style.display = 'block';
+        this.updateGreetingSection();
+      } else {
+        greetingSec.style.display = 'none';
+      }
+    }
+
+    // Loading state while MySQL data is being retrieved
+    if (this.store.isLoading) {
+      if (titleEl) titleEl.textContent = 'Memuat Data...';
+      if (subtitleEl) subtitleEl.textContent = 'MySQL Database';
+      if (toolbar) toolbar.style.display = 'none';
+      if (container) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 60px 20px;">
+            <div class="preview-spinner" style="margin: 0 auto 16px;"></div>
+            <div class="h3">Menghubungkan ke Database MySQL...</div>
+            <div style="font-size: 0.88rem; color: var(--color-muted);">Memuat data langsung dari tugasin_db (127.0.0.1:3306)...</div>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // Database connection error state (when not on settings view)
+    if (!this.store.dbConnected && this.currentView !== 'settings') {
+      if (titleEl) titleEl.textContent = 'Koneksi Terputus';
+      if (subtitleEl) subtitleEl.textContent = 'Database MySQL';
+      if (toolbar) toolbar.style.display = 'none';
+      if (container) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 48px 24px; border: 1px dashed var(--color-danger); border-radius: 12px; background: rgba(239, 68, 68, 0.04); margin-top: 20px;">
+            <div style="font-size: 2.4rem; margin-bottom: 12px; color: var(--color-danger);"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div class="h3" style="color: var(--color-danger); margin-bottom: 8px;">Koneksi Database MySQL Gagal</div>
+            <div style="font-size: 0.9rem; color: var(--color-secondary); max-width: 520px; margin: 0 auto 20px; line-height: 1.6;">
+              Aplikasi TugasIn diatur untuk <b>mengakses data penuh langsung dari database MySQL</b> (tanpa file JSON / cache lokal).
+              Pastikan server database MySQL (XAMPP/MariaDB) di <code>127.0.0.1:3306</code> aktif dan kredensial di <code>config.php</code> sudah sesuai.
+              ${this.store.lastError ? `<br><span style="color: var(--color-danger); font-family: var(--font-mono); font-size: 0.8rem; background: rgba(239, 68, 68, 0.1); padding: 4px 8px; border-radius: 4px; display: inline-block; margin-top: 8px;">Error: ${this.escapeHtml(this.store.lastError)}</span>` : ''}
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-primary" onclick="window.app.retryDbConnection()">
+                <i class="fa-solid fa-rotate"></i> Coba Hubungkan Kembali
+              </button>
+              <button class="btn btn-secondary" onclick="window.app.navigateTo('settings')">
+                <i class="fa-solid fa-gear"></i> Buka Pengaturan Database
+              </button>
+            </div>
+          </div>
+        `;
+      }
+      return;
+    }
 
     // Filter tasks based on route
     let filterOptions = {
@@ -432,7 +682,7 @@ class App {
             <div class="h2">Daftar Proyek & Tugas Besar</div>
             <p class="mono-label">Pecah tugas besar menjadi beberapa task terukur</p>
           </div>
-          <button class="btn btn-secondary" onclick="window.app.openProjectModal()">+ Proyek Baru</button>
+          <button class="btn btn-secondary" onclick="window.app.openProjectModal()"><i class="fa-solid fa-plus"></i> Proyek Baru</button>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px;">
@@ -464,8 +714,8 @@ class App {
               <div class="h3" style="margin-top: 4px;">${this.escapeHtml(p.nama)}</div>
             </div>
             <div style="display: flex; gap: 4px;">
-              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openProjectModal('${p.id}')" title="Edit Proyek">✎</button>
-              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteProjectConfirm('${p.id}')" title="Hapus Proyek">✕</button>
+              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openProjectModal('${p.id}')" title="Edit Proyek"><i class="fa-solid fa-pen-to-square"></i></button>
+              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteProjectConfirm('${p.id}')" title="Hapus Proyek"><i class="fa-solid fa-trash-can"></i></button>
             </div>
           </div>
           <div style="font-size: 0.88rem; color: var(--color-secondary); line-height: 1.4;">
@@ -484,7 +734,7 @@ class App {
 
           <div style="border-top: 1px solid var(--color-border); padding-top: 12px; display: flex; align-items: center; justify-content: space-between;">
             <span class="mono-label">Deadline: ${p.deadline ? new Date(p.deadline).toLocaleDateString('id-ID') : '-'}</span>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openQuickAddModalWithProject('${p.id}')">+ Tambah Task</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openQuickAddModalWithProject('${p.id}')"><i class="fa-solid fa-plus"></i> Tambah Task</button>
           </div>
         </div>
       `;
@@ -530,10 +780,10 @@ class App {
             </div>
             <div style="display: flex; gap: 8px;">
               <button class="btn btn-secondary btn-sm" onclick="window.app.unarchiveSemester('${s.id}')">
-                Buka Arsip (Aktifkan)
+                <i class="fa-solid fa-box-open"></i> Buka Arsip (Aktifkan)
               </button>
               <button class="btn btn-danger btn-sm" onclick="window.app.deleteSemesterConfirm('${s.id}')">
-                Hapus
+                <i class="fa-solid fa-trash-can"></i> Hapus
               </button>
             </div>
           </div>
@@ -557,7 +807,7 @@ class App {
             <p class="mono-label">Task yang dihapus tersimpan di sini selama 30 hari.</p>
           </div>
           ${trashTasks.length > 0 ? `
-            <button class="btn btn-danger" onclick="window.app.emptyTrashConfirm()">Kosongkan Sampah</button>
+            <button class="btn btn-danger" onclick="window.app.emptyTrashConfirm()"><i class="fa-solid fa-trash-can"></i> Kosongkan Sampah</button>
           ` : ''}
         </div>
     `;
@@ -587,10 +837,10 @@ class App {
             </td>
             <td style="text-align: right; padding: 12px 16px;">
               <button class="btn btn-secondary btn-sm" onclick="window.app.restoreTask('${task.id}')">
-                Pulihkan
+                <i class="fa-solid fa-rotate-left"></i> Pulihkan
               </button>
               <button class="btn btn-danger btn-sm" onclick="window.app.permanentDeleteTaskConfirm('${task.id}')">
-                Hapus Permanen
+                <i class="fa-solid fa-trash-can"></i> Hapus Permanen
               </button>
             </td>
           </tr>
@@ -622,7 +872,7 @@ class App {
         <!-- Theme Selection Card -->
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-            <div class="h3">🎨 Tema Tampilan Antarmuka</div>
+            <div class="h3"><i class="fa-solid fa-palette"></i> Tema Tampilan Antarmuka</div>
             <span class="mono-label">Tema Aktif: <b style="color: var(--color-primary);">${currentTheme === 'light' ? 'Glassline (Light Mode)' : 'Graphite (Dark Mode)'}</b></span>
           </div>
           <p class="mono-label" style="margin-bottom: 16px;">Pilih tema desain antarmuka. Tema bawaan (default) adalah Glassline Light Mode.</p>
@@ -674,7 +924,7 @@ class App {
         <!-- Telegram Configuration Box -->
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-            <div class="h3">🤖 Integrasi Telegram Bot Pengingat</div>
+            <div class="h3"><i class="fa-brands fa-telegram" style="color: #229ED9;"></i> Integrasi Telegram Bot Pengingat</div>
             <span class="tg-status-indicator">
               <span class="status-dot ${settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id ? 'active' : ''}"></span>
               ${settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id ? 'Aktif & Terhubung' : 'Belum Terhubung'}
@@ -684,7 +934,7 @@ class App {
           <!-- Quick Guide Accordion/Box -->
           <div style="background-color: var(--color-surface-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 20px;">
             <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 8px; color: var(--color-primary); display: flex; align-items: center; gap: 6px;">
-              <span>📖</span>
+              <i class="fa-solid fa-book-open"></i>
               <span>Langkah Cepat Membuat & Menghubungkan Bot:</span>
             </div>
             <ol style="margin: 0; padding-left: 20px; font-size: 0.85rem; color: var(--color-secondary); line-height: 1.6;">
@@ -692,7 +942,7 @@ class App {
               <li>Kirim pesan <code>/newbot</code>, lalu beri nama bot (contoh: <i>TugasIn Pengingat</i>) dan username (harus berakhiran <i>bot</i>, contoh: <i>tugasin_kahlil_bot</i>).</li>
               <li>Salin <b>HTTP API Token</b> yang diberikan BotFather dan tempel di kolom <b>Telegram Bot Token</b> di bawah.</li>
               <li>Buka bot yang baru Anda buat di Telegram, lalu tekan tombol <b>START</b> (atau kirim <code>/start</code>).</li>
-              <li>Klik tombol <b>⚡ Deteksi Chat ID Otomatis</b> di bawah agar Chat ID terisi secara otomatis tanpa repot!</li>
+              <li>Klik tombol <b><i class="fa-solid fa-bolt"></i> Deteksi Chat ID Otomatis</b> di bawah agar Chat ID terisi secara otomatis tanpa repot!</li>
             </ol>
           </div>
 
@@ -702,7 +952,7 @@ class App {
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="setting-tg-token" value="${this.escapeHtml(settings.telegram_bot_token || '')}" placeholder="Contoh: 7123456789:AAHkL1234567890abcdefghijklmnopqrst" style="flex: 1;">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.verifyTelegramBot()">
-                  🔍 Verifikasi Token
+                  <i class="fa-solid fa-magnifying-glass"></i> Verifikasi Token
                 </button>
               </div>
               <div id="tg-bot-verify-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 4px;"></div>
@@ -713,7 +963,7 @@ class App {
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="setting-tg-chatid" value="${this.escapeHtml(settings.telegram_chat_id || '')}" placeholder="Contoh: 123456789" style="flex: 1;">
                 <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.detectTelegramChatId()" title="Deteksi Chat ID otomatis dari pesan /start terakhir">
-                  ⚡ Deteksi Chat ID Otomatis
+                  <i class="fa-solid fa-bolt"></i> Deteksi Chat ID Otomatis
                 </button>
               </div>
               <div id="tg-detect-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 4px;"></div>
@@ -728,61 +978,73 @@ class App {
 
             <div style="display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
               <button type="submit" class="btn btn-primary">
-                💾 Simpan Pengaturan
+                <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan
               </button>
               <button type="button" class="btn btn-secondary" onclick="window.app.testTelegramConnection()">
-                🔔 Kirim Pesan Tes Telegram
+                <i class="fa-solid fa-bell"></i> Kirim Pesan Tes Telegram
               </button>
             </div>
             <div id="tg-test-feedback" class="mono-label" style="margin-top: 6px;"></div>
           </form>
         </div>
 
-        <!-- MySQL Database Status & Management Box -->
+        <!-- MySQL Full Database Access & Management Box -->
         <div class="card">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-            <div class="h3">🗄️ Database Relasional MySQL</div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+            <div>
+              <div class="h3" style="margin-bottom: 4px;"><i class="fa-solid fa-database" style="color: var(--color-tertiary);"></i> Akses Penuh Database MySQL</div>
+              <div style="font-size: 0.82rem; color: var(--color-secondary);">
+                Aplikasi mengambil dan menyimpan seluruh data langsung dari database relasional MySQL. Tidak menggunakan file JSON maupun penyimpanan lokal.
+              </div>
+            </div>
             <span class="tg-status-indicator">
-              <span class="status-dot ${this.store.dbConnected ? 'active' : ''}"></span>
-              ${this.store.dbConnected ? 'Terhubung (MySQL)' : 'Offline (Cache Lokal)'}
+              <span class="status-dot ${this.store.dbConnected ? 'active' : 'danger'}"></span>
+              ${this.store.dbConnected ? 'Terhubung Penuh (MySQL)' : 'Terputus dari MySQL'}
             </span>
           </div>
 
-          <div style="font-size: 0.88rem; color: var(--color-secondary); margin-bottom: 16px; line-height: 1.5;">
-            Data TugasIn kini tersimpan permanen di database relasional <b>MySQL (MariaDB)</b> dengan nama database <code style="font-family: var(--font-mono); background: var(--color-neutral); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-border);">tugasin_db</code>.
-            Integritas relasi antar-entitas (Semester, Mata Kuliah, Task, Subtask) dijamin oleh database server.
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px;">
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Host & Port</div>
+              <div style="font-weight: 600; font-family: var(--font-mono); font-size: 0.88rem;">127.0.0.1:3306</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Database</div>
+              <div style="font-weight: 600; font-family: var(--font-mono); font-size: 0.88rem; color: var(--color-primary);">tugasin_db</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Semester</div>
+              <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.semesters || []).length} Semester</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Mata Kuliah</div>
+              <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.courses || []).length} Kursus</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Total Tugas</div>
+              <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.tasks || []).length} Tugas</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Proyek / Tubas</div>
+              <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.projects || []).length} Proyek</div>
+            </div>
           </div>
 
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button class="btn btn-secondary" onclick="window.app.syncAllToMySQL()">
-              ⚡ Sinkronkan Ulang ke MySQL
+            <button class="btn btn-secondary" onclick="window.app.refreshFromMySQL()">
+              <i class="fa-solid fa-rotate"></i> Segarkan Data Langsung dari MySQL
             </button>
             <button class="btn btn-secondary" onclick="window.app.checkDbStatus()">
-              🔍 Periksa Koneksi Database
+              <i class="fa-solid fa-network-wired"></i> Uji Ping & Latensi Database
             </button>
-            <button class="btn btn-danger" onclick="window.app.resetDataConfirm()">
-              ↺ Reset Database ke Nilai Bawaan
+            <button class="btn btn-danger" onclick="window.app.openModal('clear-data-modal')" title="Kosongkan seluruh data tugas, semester, mata kuliah, dan proyek menjadi 0">
+              <i class="fa-solid fa-trash-can"></i> Reset Data Menjadi Kosong (Null Data)
+            </button>
+            <button class="btn btn-secondary" onclick="window.app.openModal('reset-demo-modal')" title="Isi ulang data contoh bawaan dari database.sql">
+              <i class="fa-solid fa-rotate-left"></i> Isi Data Demo Bawaan (database.sql)
             </button>
           </div>
-          <div id="db-feedback" class="mono-label" style="margin-top: 10px;"></div>
-        </div>
-
-        <!-- Backup & Restore Box -->
-        <div class="card">
-          <div class="h3" style="margin-bottom: 8px;">💾 Pencadangan & Pemulihan Berkas JSON</div>
-          <div style="font-size: 0.88rem; color: var(--color-secondary); margin-bottom: 16px;">
-            Ekspor seluruh semester, mata kuliah, dan task ke berkas JSON lokal untuk backup mandiri.
-          </div>
-
-          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button class="btn btn-secondary" onclick="window.app.exportDataToFile()">
-              📥 Ekspor Berkas JSON
-            </button>
-            <label class="btn btn-secondary" style="cursor: pointer;">
-              📤 Impor Berkas JSON
-              <input type="file" accept=".json" onchange="window.app.importDataFromFile(event)" style="display: none;">
-            </label>
-          </div>
+          <div id="db-feedback" class="mono-label" style="margin-top: 12px;"></div>
         </div>
       </div>
     `;
@@ -1043,7 +1305,7 @@ class App {
         <div class="subtask-item">
           <input type="checkbox" ${st.selesai ? 'checked' : ''} onchange="window.app.toggleSubtask(${idx})">
           <input type="text" class="subtask-title-input ${st.selesai ? 'done' : ''}" value="${this.escapeHtml(st.judul)}" onchange="window.app.updateSubtaskTitle(${idx}, this.value)">
-          <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteSubtask(${idx})" style="color: var(--color-danger);" title="Hapus Subtask">✕</button>
+          <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteSubtask(${idx})" style="color: var(--color-danger);" title="Hapus Subtask"><i class="fa-solid fa-xmark"></i></button>
         </div>
       `;
     });
@@ -1280,7 +1542,13 @@ class App {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        throw new Error(text.replace(/<[^>]*>?/gm, '').trim() || 'Respon server bukan format JSON');
+      }
       if (data.ok && data.result) {
         const bot = data.result;
         if (feedback) {
@@ -1323,7 +1591,13 @@ class App {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        throw new Error(text.replace(/<[^>]*>?/gm, '').trim() || 'Respon server bukan format JSON');
+      }
       if (data.ok && data.chat_id) {
         document.getElementById('setting-tg-chatid').value = data.chat_id;
         if (feedback) {
@@ -1364,59 +1638,119 @@ class App {
     }
   }
 
-  exportDataToFile() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(this.store.exportJSON());
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `tugasin_backup_${new Date().toISOString().substring(0, 10)}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-  }
+  async refreshFromMySQL() {
+    const feedback = document.getElementById('db-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Memuat ulang data langsung dari database MySQL (tugasin_db)...';
+    }
 
-  importDataFromFile(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const success = this.store.importJSON(e.target.result);
+    const success = await this.store.refreshFromBackend();
+    if (feedback) {
       if (success) {
-        alert('Data berhasil diimpor!');
-        this.renderCurrentView();
+        feedback.style.color = 'var(--color-tertiary)';
+        feedback.textContent = `✓ Data berhasil dimuat ulang langsung dari database MySQL! (${(this.store.data.tasks || []).length} tugas aktif).`;
+        this.showToastNotification('Data berhasil dimuat ulang dari MySQL!');
       } else {
-        alert('Gagal mengimpor data: format berkas tidak sesuai.');
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = `✕ Gagal memuat data dari MySQL: ${this.store.lastError || 'Koneksi terputus'}`;
       }
-    };
-    reader.readAsText(file);
+    }
+    this.updateDbStatusUi();
+    this.renderCurrentView();
   }
 
-  async resetDataConfirm() {
-    if (confirm('Perhatian! Anda akan mengatur ulang seluruh database MySQL ke nilai bawaan. Lanjutkan?')) {
-      await this.store.resetData();
-      this.showToastNotification('Database berhasil diatur ulang ke data demo bawaan.');
+  async retryDbConnection() {
+    this.showToastNotification('Menghubungkan kembali ke database MySQL...');
+    await this.store.fetchFromBackend();
+    this.updateDbStatusUi();
+    this.renderSidebar();
+    this.renderTopStats();
+    this.renderCurrentView();
+  }
+
+  async clearAllDataConfirm() {
+    if (confirm('PERINGATAN! Anda akan menghapus seluruh data (Semester, Mata Kuliah, Tugas, Proyek, dan Lampiran) di database MySQL sehingga menjadi KOSONG (null data).\n\nApakah Anda yakin ingin mengosongkan semua data?')) {
+      const feedback = document.getElementById('db-feedback');
+      if (feedback) {
+        feedback.style.color = 'var(--color-secondary)';
+        feedback.textContent = 'Mengosongkan seluruh data database MySQL...';
+      }
+
+      const ok = await this.store.clearAllData();
+      if (ok) {
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          feedback.textContent = '✓ Seluruh data berhasil dikosongkan (null data)!';
+        }
+        this.showToastNotification('Seluruh data di database MySQL berhasil dikosongkan (null data).');
+      } else {
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = '✕ Gagal mengosongkan data database.';
+        }
+        alert('Gagal mengosongkan data database MySQL. ' + (this.store.lastError || 'Periksa koneksi database.'));
+      }
+      this.updateDbStatusUi();
+      this.renderSidebar();
+      this.renderTopStats();
       this.renderCurrentView();
     }
   }
 
-  async syncAllToMySQL() {
+  async executeClearAllData() {
+    this.closeModal('clear-data-modal');
     const feedback = document.getElementById('db-feedback');
     if (feedback) {
       feedback.style.color = 'var(--color-secondary)';
-      feedback.textContent = 'Menyinkronkan data ke MySQL (tugasin_db)...';
+      feedback.textContent = 'Mengosongkan seluruh data database MySQL...';
     }
 
-    const res = await this.store.syncAllToMySQL();
-    if (feedback) {
-      if (res && res.ok) {
+    const ok = await this.store.clearAllData();
+    if (ok) {
+      if (feedback) {
         feedback.style.color = 'var(--color-tertiary)';
-        feedback.textContent = '✓ Seluruh data berhasil disinkronkan ke database MySQL!';
-        this.showToastNotification('Sinkronisasi MySQL berhasil!');
-      } else {
-        feedback.style.color = 'var(--color-danger)';
-        feedback.textContent = `✕ Gagal sinkronisasi: ${res ? res.error : 'Koneksi error'}`;
+        feedback.textContent = '✓ Seluruh data berhasil dikosongkan (null data)!';
       }
+      this.showToastNotification('Seluruh data di database MySQL berhasil dikosongkan (null data).');
+    } else {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = '✕ Gagal mengosongkan data database.';
+      }
+      this.showToastNotification('Gagal mengosongkan database: ' + (this.store.lastError || ''));
     }
+    this.updateDbStatusUi();
+    this.renderSidebar();
+    this.renderTopStats();
+    this.renderCurrentView();
+  }
+
+  async executeResetDemoData() {
+    this.closeModal('reset-demo-modal');
+    const feedback = document.getElementById('db-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Mengatur ulang database ke data demo bawaan...';
+    }
+
+    const ok = await this.store.resetData();
+    if (ok) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-tertiary)';
+        feedback.textContent = '✓ Database berhasil diatur ulang ke data demo bawaan!';
+      }
+      this.showToastNotification('Database berhasil diatur ulang ke data demo bawaan.');
+    } else {
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = '✕ Gagal mengatur ulang database.';
+      }
+      this.showToastNotification('Gagal mengatur ulang database.');
+    }
+    this.updateDbStatusUi();
+    this.renderSidebar();
+    this.renderTopStats();
     this.renderCurrentView();
   }
 
@@ -1424,24 +1758,43 @@ class App {
     const feedback = document.getElementById('db-feedback');
     if (feedback) {
       feedback.style.color = 'var(--color-secondary)';
-      feedback.textContent = 'Memeriksa status koneksi MySQL...';
+      feedback.textContent = 'Menguji latensi dan status koneksi MySQL...';
     }
 
+    const start = performance.now();
     try {
-      const res = await fetch('api.php?action=ping');
-      const data = await res.json();
+      const res = await fetch('api.php?action=ping', { cache: 'no-store' });
+      const latency = Math.round(performance.now() - start);
+      const text = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        let snippet = text.replace(/<[^>]*>?/gm, '').trim();
+        if (snippet.length > 160) snippet = snippet.substring(0, 160) + '...';
+        throw new Error(
+          snippet 
+            ? `Respon server hosting bukan format JSON: ${snippet}` 
+            : `Respon server hosting bukan format JSON (HTTP ${res.status}). Periksa konfigurasi di config.php.`
+        );
+      }
+
       if (data && data.ok) {
         if (feedback) {
           feedback.style.color = 'var(--color-tertiary)';
-          feedback.textContent = `✓ MySQL terhubung! Database: ${data.database}, Tugas aktif: ${data.active_tasks}`;
+          feedback.textContent = `✓ MySQL terhubung! Database: ${data.database}, Tugas aktif: ${data.active_tasks}, Latensi respons: ${latency} ms.`;
         }
         this.store.dbConnected = true;
       } else {
+        const errDetail = data && data.hint 
+          ? `${data.error} (Petunjuk: ${data.hint})` 
+          : (data ? data.error : 'Database MySQL tidak merespons ping.');
         if (feedback) {
           feedback.style.color = 'var(--color-danger)';
-          feedback.textContent = '✕ Database tidak merespons.';
+          feedback.textContent = `✕ ${errDetail}`;
         }
         this.store.dbConnected = false;
+        this.store.lastError = errDetail;
       }
     } catch (e) {
       if (feedback) {
@@ -1449,7 +1802,9 @@ class App {
         feedback.textContent = `✕ Gagal terhubung ke MySQL: ${e.message}`;
       }
       this.store.dbConnected = false;
+      this.store.lastError = e.message;
     }
+    this.updateDbStatusUi();
   }
 
   // --- ATTACHMENTS (Gambar Pendukung - Task 3 & Task 4) ---
@@ -1530,7 +1885,7 @@ class App {
         <div class="attachment-card" data-att-id="${att.id}">
           <div class="attachment-thumb-wrap" onclick="window.app.openImagePreview('${task.id}', ${idx})" title="Klik untuk memperbesar / preview">
             <img src="${thumbUrl}" alt="${this.escapeHtml(att.caption || att.file_name)}" loading="lazy">
-            <div class="attachment-overlay-hint">🔍 Lihat</div>
+            <div class="attachment-overlay-hint"><i class="fa-solid fa-magnifying-glass"></i> Lihat</div>
           </div>
           <div class="attachment-card-body">
             <div class="attachment-file-info" title="${this.escapeHtml(att.file_name)}">
@@ -1549,11 +1904,11 @@ class App {
             </div>
           </div>
           <div class="attachment-card-actions">
-            ${idx > 0 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, -1)" title="Geser ke kiri">◀</button>` : ''}
-            ${idx < attachments.length - 1 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, 1)" title="Geser ke kanan">▶</button>` : ''}
+            ${idx > 0 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, -1)" title="Geser ke kiri"><i class="fa-solid fa-chevron-left"></i></button>` : ''}
+            ${idx < attachments.length - 1 ? `<button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.moveAttachment('${task.id}', ${idx}, 1)" title="Geser ke kanan"><i class="fa-solid fa-chevron-right"></i></button>` : ''}
             <div style="flex: 1;"></div>
-            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.promptEditCaption('${task.id}', '${att.id}', '${this.escapeHtml(att.caption || '')}')" title="Ubah keterangan">✎</button>
-            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.confirmDeleteAttachment('${task.id}', '${att.id}')" title="Hapus gambar" style="color: var(--color-danger);">🗑</button>
+            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.promptEditCaption('${task.id}', '${att.id}', '${this.escapeHtml(att.caption || '')}')" title="Ubah keterangan"><i class="fa-solid fa-pen-to-square"></i></button>
+            <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.confirmDeleteAttachment('${task.id}', '${att.id}')" title="Hapus gambar" style="color: var(--color-danger);"><i class="fa-solid fa-trash-can"></i></button>
           </div>
         </div>
       `;
@@ -1610,7 +1965,13 @@ class App {
           method: 'POST',
           body: formData
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data = null;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          throw new Error(text.replace(/<[^>]*>?/gm, '').trim() || 'Respon server bukan format JSON');
+        }
         if (data.ok && data.attachment) {
           this.store.addAttachmentToTask(taskId, data.attachment);
           this.showToastNotification(`✓ Gambar ${file.name} berhasil diunggah`);

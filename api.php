@@ -4,12 +4,19 @@
  * Provides real-time persistence, relational integrity, and Telegram proxy
  */
 
+// Matikan display_errors HTML agar respon API selalu berupa JSON murni tanpa tercampur pesan error/warning PHP
+@ini_set('display_errors', '0');
+error_reporting(0);
+if (!ob_get_level()) {
+    @ob_start();
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
@@ -110,7 +117,10 @@ try {
     if ($action === 'get_all') {
         // Semesters
         $semestersStmt = $db->query("SELECT id, nama, tanggal_mulai, tanggal_selesai, warna, ikon, (diarsipkan = 1) AS diarsipkan FROM semesters ORDER BY created_at ASC");
-        $semesters = $semestersStmt->fetchAll();
+        $semesters = array_map(function($s) {
+            $s['diarsipkan'] = (bool)$s['diarsipkan'];
+            return $s;
+        }, $semestersStmt->fetchAll());
 
         // Courses
         $coursesStmt = $db->query("SELECT id, semester_id, nama, kode, dosen, sks, warna, ikon, urutan FROM courses ORDER BY urutan ASC, created_at ASC");
@@ -118,7 +128,11 @@ try {
 
         // Statuses
         $statusesStmt = $db->query("SELECT id, nama, urutan, (apakah_selesai = 1) AS apakah_selesai FROM statuses ORDER BY urutan ASC");
-        $statuses = $statusesStmt->fetchAll();
+        $statuses = array_map(function($st) {
+            $st['apakah_selesai'] = (bool)$st['apakah_selesai'];
+            $st['urutan'] = (int)$st['urutan'];
+            return $st;
+        }, $statusesStmt->fetchAll());
 
         // Projects
         $projectsStmt = $db->query("SELECT id, user_id, nama, deskripsi, deadline, status FROM projects ORDER BY created_at ASC");
@@ -1210,14 +1224,79 @@ try {
     }
 
     // ---------------------------------------------------------
-    // 10. RESET DATABASE KE SEED
+    // 10. RESET DATABASE (Ke Null Data / Kosongkan Semua)
+    // ---------------------------------------------------------
+    if ($action === 'clear_all_data') {
+        // Hapus berkas fisik lampiran dari disk
+        $attStmt = $db->query("SELECT id, storage_path FROM task_attachments");
+        $atts = $attStmt->fetchAll();
+        foreach ($atts as $a) {
+            deletePhysicalAttachmentFiles($a['storage_path'], $a['id']);
+        }
+
+        $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
+        $db->exec("DELETE FROM `task_attachments`;");
+        $db->exec("DELETE FROM `subtasks`;");
+        $db->exec("DELETE FROM `tasks`;");
+        $db->exec("DELETE FROM `projects`;");
+        $db->exec("DELETE FROM `courses`;");
+        $db->exec("DELETE FROM `semesters`;");
+        
+        // Tetap sediakan 4 status dasar Kanban agar pembuatan tugas baru tetap valid
+        $db->exec("DELETE FROM `statuses`;");
+        $db->exec("
+            INSERT INTO `statuses` (`id`, `nama`, `urutan`, `apakah_selesai`) VALUES
+            ('st_todo', 'Belum Mulai', 0, 0),
+            ('st_prog', 'Sedang Dikerjakan', 1, 0),
+            ('st_rev', 'Butuh Review', 2, 0),
+            ('st_done', 'Selesai', 3, 1);
+        ");
+
+        // Reset settings ke nilai default bawaan
+        $db->exec("DELETE FROM `settings`;");
+        $db->exec("
+            INSERT INTO `settings` (`kunci`, `nilai`) VALUES
+            ('theme', 'light'),
+            ('telegram_bot_token', ''),
+            ('telegram_chat_id', ''),
+            ('telegram_enabled', '0'),
+            ('default_reminder_hours', '[72, 24, 2]'),
+            ('snooze_minutes', '15'),
+            ('timezone', 'Asia/Jakarta');
+        ");
+        $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
+        echo json_encode(['ok' => true, 'message' => 'Seluruh data tugas, matakuliah, semester, dan proyek berhasil dikosongkan (null data).']);
+        exit;
+    }
+
+    // ---------------------------------------------------------
+    // 10.1 RESET DATABASE KE SEED DEMO (database.sql)
     // ---------------------------------------------------------
     if ($action === 'reset_database') {
         $sqlFile = __DIR__ . '/database.sql';
         if (file_exists($sqlFile)) {
+            // Hapus berkas fisik lampiran lama
+            $attStmt = $db->query("SELECT id, storage_path FROM task_attachments");
+            $atts = $attStmt->fetchAll();
+            foreach ($atts as $a) {
+                deletePhysicalAttachmentFiles($a['storage_path'], $a['id']);
+            }
+
+            $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
+            $db->exec("DELETE FROM `task_attachments`;");
+            $db->exec("DELETE FROM `subtasks`;");
+            $db->exec("DELETE FROM `tasks`;");
+            $db->exec("DELETE FROM `projects`;");
+            $db->exec("DELETE FROM `courses`;");
+            $db->exec("DELETE FROM `semesters`;");
+            $db->exec("DELETE FROM `statuses`;");
+            $db->exec("DELETE FROM `settings`;");
+            $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
             $sql = file_get_contents($sqlFile);
             $db->exec($sql);
-            echo json_encode(['ok' => true, 'message' => 'Database MySQL berhasil diatur ulang ke data bawaan.']);
+            echo json_encode(['ok' => true, 'message' => 'Database MySQL berhasil diatur ulang ke data demo bawaan.']);
             exit;
         } else {
             http_response_code(500);
@@ -1276,7 +1355,13 @@ try {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
-    http_response_code(500);
+    if (ob_get_length()) {
+        @ob_clean();
+    }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Access-Control-Allow-Origin: *');
+    }
     echo json_encode([
         'ok' => false,
         'error' => 'Server database error: ' . $e->getMessage()
@@ -1284,5 +1369,10 @@ try {
     exit;
 }
 
-http_response_code(404);
+if (ob_get_length()) {
+    @ob_clean();
+}
+if (!headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+}
 echo json_encode(['ok' => false, 'error' => 'Aksi endpoint tidak ditemukan.']);

@@ -16,10 +16,10 @@ class ListView {
     if (!tasks || tasks.length === 0) {
       this.container.innerHTML = `
         <div class="empty-state">
-          <div class="empty-icon">✓</div>
+          <div class="empty-icon"><i class="fa-solid fa-clipboard-check"></i></div>
           <div class="h2">Tidak ada tugas</div>
           <p class="mono-label">Semua tugas selesai atau tidak ada yang sesuai filter.</p>
-          <button class="btn btn-primary" onclick="window.app.openQuickAddModal()">+ Buat Task Baru</button>
+          <button class="btn btn-primary" onclick="window.app.openQuickAddModal()"><i class="fa-solid fa-plus"></i> Buat Task Baru</button>
         </div>
       `;
       return;
@@ -131,7 +131,7 @@ class ListView {
       const completed = task.subtasks.filter(s => s.selesai).length;
       subtasksHtml = `
         <span class="subtask-counter-pill" title="Subtask ${completed}/${total} selesai">
-          ✓ ${completed}/${total}
+          <i class="fa-solid fa-list-check" style="font-size: 0.72rem;"></i> ${completed}/${total}
         </span>
       `;
     }
@@ -151,7 +151,7 @@ class ListView {
     if (task.attachments && task.attachments.length > 0) {
       attachmentsHtml = `
         <span class="attachment-pill" title="${task.attachments.length} lampiran gambar">
-          🖼️ ${task.attachments.length}
+          <i class="fa-solid fa-image" style="font-size: 0.72rem;"></i> ${task.attachments.length}
         </span>
       `;
     }
@@ -162,7 +162,7 @@ class ListView {
           <div class="custom-checkbox ${isCompleted ? 'checked' : ''}" 
                onclick="window.app.toggleTaskCompletion('${task.id}')"
                title="${isCompleted ? 'Tandai belum selesai' : 'Tandai selesai'}">
-            ${isCompleted ? '✓' : ''}
+            ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}
           </div>
         </td>
         <td class="task-title-cell" onclick="window.app.openTaskDetail('${task.id}')">
@@ -193,10 +193,10 @@ class ListView {
         </td>
         <td style="width: 80px; text-align: right; white-space: nowrap;">
           <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openTaskDetail('${task.id}')" title="Edit">
-            ✎
+            <i class="fa-solid fa-pen-to-square"></i>
           </button>
           <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteTask('${task.id}')" title="Hapus ke Sampah">
-            🗑
+            <i class="fa-solid fa-trash-can"></i>
           </button>
         </td>
       </tr>

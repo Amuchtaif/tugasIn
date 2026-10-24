@@ -333,13 +333,28 @@ button,
 
 .btn-danger {
   background-color: var(--color-danger-bg);
-  color: var(--color-danger);
+  color: var(--color-danger) !important;
   border-color: var(--color-danger-border);
+  font-weight: 500;
 }
 
 .btn-danger:hover:not(:disabled) {
   background-color: var(--color-danger-hover);
   border-color: var(--color-danger);
+  color: var(--color-danger) !important;
+}
+
+.btn-danger-solid {
+  background-color: var(--color-danger);
+  color: #FFFFFF !important;
+  border-color: var(--color-danger);
+  font-weight: 600;
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  background-color: #B91C1C;
+  border-color: #B91C1C;
+  color: #FFFFFF !important;
 }
 
 .btn-outline {
@@ -420,7 +435,35 @@ input::placeholder, textarea::placeholder {
   display: flex;
   flex-direction: column;
   z-index: 20;
-  transition: transform 0.2s ease;
+  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              visibility 0.28s;
+  will-change: margin-left, transform;
+}
+
+/* Collapsed Desktop State (Allows main container to expand to full width) */
+html.sidebar-init-collapsed #sidebar,
+#app-root.sidebar-collapsed #sidebar,
+#sidebar.collapsed {
+  margin-left: calc(-1 * var(--sidebar-width));
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sidebar-collapse-btn {
+  color: var(--color-secondary);
+  transition: all 0.2s ease;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--color-primary);
+  background-color: var(--color-surface-hover);
 }
 
 .sidebar-header {
@@ -629,8 +672,20 @@ input::placeholder, textarea::placeholder {
   gap: var(--space-md);
 }
 
+.sidebar-toggle-btn,
 .mobile-menu-btn {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+#app-root.sidebar-collapsed .sidebar-toggle-btn,
+.sidebar-toggle-btn.active {
+  background-color: var(--color-surface-hover);
+  color: var(--color-tertiary);
+  border-color: var(--color-tertiary);
 }
 
 .breadcrumb-path {
@@ -719,6 +774,247 @@ input::placeholder, textarea::placeholder {
 
 .stat-num.overdue {
   color: var(--color-danger);
+}
+
+/* ==========================================================================
+   GREETING & REMINDER CARD SECTION
+   ========================================================================== */
+.greeting-section {
+  padding: var(--space-md) var(--space-lg) 0;
+  background-color: var(--color-neutral);
+  transition: all 0.2s ease;
+}
+
+.greeting-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: 16px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle decorative gradient glow behind greeting */
+.greeting-card::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -10%;
+  width: 420px;
+  height: 220px;
+  background: radial-gradient(ellipse at center, rgba(37, 99, 235, 0.08), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+[data-theme="dark"] .greeting-card::before {
+  background: radial-gradient(ellipse at center, rgba(180, 255, 57, 0.05), transparent 70%);
+}
+
+.greeting-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+}
+
+.greeting-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.45rem;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-tertiary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.greeting-card:hover .greeting-icon-wrapper {
+  transform: scale(1.06) rotate(3deg);
+}
+
+.greeting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.greeting-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.greeting-title {
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1.25;
+}
+
+.greeting-time-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  background: var(--color-surface-hover);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+}
+
+.greeting-subtitle {
+  font-size: 0.84rem;
+  color: var(--color-secondary);
+  margin: 0;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.greeting-reminders {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.reminder-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  min-width: 175px;
+}
+
+.reminder-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-focus);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.reminder-icon-box {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+/* Deadline reminder card styling */
+.reminder-card.reminder-deadline .reminder-icon-box {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.reminder-card.reminder-deadline.has-urgent {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.reminder-card.reminder-deadline.has-urgent .reminder-value {
+  color: var(--color-danger);
+}
+
+/* Ongoing reminder card styling */
+.reminder-card.reminder-ongoing .reminder-icon-box {
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563EB;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="dark"] .reminder-card.reminder-ongoing .reminder-icon-box {
+  background: rgba(180, 255, 57, 0.1);
+  color: var(--color-tertiary);
+  border: 1px solid rgba(180, 255, 57, 0.2);
+}
+
+.reminder-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.reminder-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.reminder-value {
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1;
+}
+
+.reminder-label {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+}
+
+.reminder-desc {
+  font-size: 0.74rem;
+  color: var(--color-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .greeting-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+  .greeting-reminders {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .reminder-card {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .greeting-reminders {
+    grid-template-columns: 1fr;
+  }
+  .greeting-subtitle {
+    white-space: normal;
+  }
 }
 
 /* Secondary Action Toolbar */
@@ -897,6 +1193,7 @@ input::placeholder, textarea::placeholder {
   background-color: var(--color-tertiary);
   border-color: var(--color-tertiary);
   color: var(--color-on-primary);
+  font-size: 0.65rem;
 }
 
 .task-title-cell {
@@ -1497,6 +1794,14 @@ input::placeholder, textarea::placeholder {
   background-color: var(--color-tertiary);
 }
 
+.status-dot.danger {
+  background-color: var(--color-danger);
+}
+
+.status-dot.warning {
+  background-color: #F59E0B;
+}
+
 /* In-App Notification Toast */
 #toast-container {
   position: fixed;
@@ -1701,13 +2006,40 @@ input::placeholder, textarea::placeholder {
   :root {
     --sidebar-width: 250px;
   }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 19;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  .sidebar-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
   
-  #sidebar {
+  #sidebar,
+  html.sidebar-init-collapsed #sidebar,
+  #app-root.sidebar-collapsed #sidebar,
+  #sidebar.collapsed {
     position: fixed;
     top: 0;
     left: 0;
     bottom: 0;
+    margin-left: 0;
+    visibility: visible;
+    pointer-events: auto;
     transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   #sidebar.open {
@@ -1715,6 +2047,7 @@ input::placeholder, textarea::placeholder {
     box-shadow: var(--shadow-sidebar);
   }
 
+  .sidebar-toggle-btn,
   .mobile-menu-btn {
     display: inline-flex;
   }

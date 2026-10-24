@@ -58,9 +58,9 @@ class CalendarView {
           <div style="display: flex; align-items: center; gap: 12px;">
             <div class="calendar-month-title">${title}</div>
             <div class="calendar-nav-controls" style="display: flex; align-items: center; gap: 4px;">
-              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.prev()" title="Bulan Sebelumnya">◀</button>
-              <button class="btn btn-secondary btn-sm" onclick="window.calendarView.today()">Hari Ini</button>
-              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.next()" title="Bulan Selanjutnya">▶</button>
+              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.prev()" title="Bulan Sebelumnya"><i class="fa-solid fa-chevron-left"></i></button>
+              <button class="btn btn-secondary btn-sm" onclick="window.calendarView.today()"><i class="fa-regular fa-calendar"></i> Hari Ini</button>
+              <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.next()" title="Bulan Selanjutnya"><i class="fa-solid fa-chevron-right"></i></button>
             </div>
           </div>
           <div class="view-tabs">

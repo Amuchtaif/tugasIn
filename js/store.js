@@ -1,59 +1,98 @@
 /**
  * TugasIn - Core Reactive Data Store
  * Conforms to PRD-TugasIn.md specification
- * Storage Layer: MySQL (tugasin_db via api.php) with instant localStorage local cache
+ * Storage Layer: Full and direct relational access to MySQL (tugasin_db via api.php)
+ * All data is loaded directly from and persisted into MySQL. No JSON file or localStorage cache.
  */
-
-const STORAGE_KEY = 'tugasin_db_v1';
 
 class Store {
   constructor() {
     this.listeners = new Set();
     this.dbConnected = false;
-    this.init();
-  }
+    this.isLoading = true;
+    this.lastError = null;
 
-  init() {
-    // 1. Fast local cache load (0ms immediate render)
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        this.data = JSON.parse(raw);
-        if (!this.data.settings) this.data.settings = {};
-        if (!this.data.settings.theme) this.data.settings.theme = 'light';
-      } catch (e) {
-        console.error('Failed to parse storage, loading seed data:', e);
-        this.data = this.getSeedData();
-        this.saveLocalOnly();
+    // Relational in-memory state, purely mirroring MySQL database
+    this.data = {
+      semesters: [],
+      courses: [],
+      statuses: [],
+      projects: [],
+      tasks: [],
+      settings: {
+        theme: 'light',
+        telegram_bot_token: '',
+        telegram_chat_id: '',
+        telegram_enabled: false,
+        default_reminder_hours: [72, 24, 2],
+        snooze_minutes: 15,
+        timezone: 'Asia/Jakarta'
       }
-    } else {
-      this.data = this.getSeedData();
-      this.saveLocalOnly();
+    };
+
+    // Purge any legacy localStorage JSON cache to ensure 100% clean MySQL-only data
+    try {
+      localStorage.removeItem('tugasin_db_v1');
+    } catch (e) {
+      // Ignore if localStorage unavailable
     }
 
-    // 2. Asynchronously fetch fresh source of truth from MySQL
-    this.fetchFromBackend();
+    // Initialize initial connection to MySQL
+    this.initPromise = this.fetchFromBackend();
   }
 
-  // --- BACKEND API SYNCHRONIZATION ---
+  // --- AUTHORITATIVE MYSQL BACKEND SYNCHRONIZATION ---
   async fetchFromBackend() {
+    this.isLoading = true;
     try {
-      const res = await fetch('api.php?action=get_all');
-      if (res.ok) {
-        const json = await res.json();
-        if (json.ok && json.data) {
-          this.data = json.data;
-          this.dbConnected = true;
-          this.saveLocalOnly();
-          this.notify();
-          return true;
+      const res = await fetch('api.php?action=get_all', {
+        cache: 'no-store',
+        headers: {
+          'Accept': 'application/json'
         }
+      });
+
+      const text = await res.text();
+      let json = null;
+      try {
+        json = JSON.parse(text);
+      } catch (jsonErr) {
+        let snippet = text.replace(/<[^>]*>?/gm, '').trim();
+        if (snippet.length > 160) snippet = snippet.substring(0, 160) + '...';
+        throw new Error(
+          snippet 
+            ? `Respon server hosting bukan format JSON: ${snippet}` 
+            : `Respon server hosting bukan format JSON (HTTP ${res.status}). Periksa pengaturan database di config.php.`
+        );
+      }
+
+      if (json && json.ok && json.data) {
+        this.data = {
+          semesters: Array.isArray(json.data.semesters) ? json.data.semesters : [],
+          courses: Array.isArray(json.data.courses) ? json.data.courses : [],
+          statuses: Array.isArray(json.data.statuses) ? json.data.statuses : [],
+          projects: Array.isArray(json.data.projects) ? json.data.projects : [],
+          tasks: Array.isArray(json.data.tasks) ? json.data.tasks : [],
+          settings: json.data.settings || { theme: 'light' }
+        };
+
+        this.dbConnected = true;
+        this.lastError = null;
+        this.isLoading = false;
+        this.notify();
+        return true;
+      } else {
+        const errorMsg = json.hint ? `${json.error}\nPetunjuk: ${json.hint}` : (json.error || 'Respon data dari MySQL tidak valid.');
+        throw new Error(errorMsg);
       }
     } catch (e) {
-      console.warn('MySQL backend fetch unavailable, running from local cache:', e);
+      console.error('Koneksi ke database MySQL gagal:', e);
       this.dbConnected = false;
+      this.lastError = e.message;
+      this.isLoading = false;
+      this.notify();
+      return false;
     }
-    return false;
   }
 
   async sendToBackend(action, payload = {}) {
@@ -63,47 +102,58 @@ class Store {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonErr) {
+        let snippet = text.replace(/<[^>]*>?/gm, '').trim();
+        if (snippet.length > 160) snippet = snippet.substring(0, 160) + '...';
+        data = { ok: false, error: snippet || `Respon server bukan format JSON (HTTP ${res.status})` };
+      }
       if (data && data.ok) {
         this.dbConnected = true;
+        this.lastError = null;
+      } else if (data && !data.ok) {
+        this.lastError = data.hint ? `${data.error} (${data.hint})` : (data.error || 'Operasi database gagal.');
       }
       return data;
     } catch (e) {
-      console.warn(`Failed to sync action ${action} to MySQL:`, e);
+      console.warn(`Gagal mengirim aksi ${action} ke MySQL:`, e);
       this.dbConnected = false;
+      this.lastError = e.message;
       return { ok: false, error: e.message };
     }
   }
 
-  async syncAllToMySQL() {
-    const res = await this.sendToBackend('sync_all', this.data);
-    if (res && res.ok) {
-      this.dbConnected = true;
-      await this.fetchFromBackend();
-    }
-    return res;
+  async refreshFromBackend() {
+    return await this.fetchFromBackend();
   }
 
   getDbStatus() {
+    const tasks = this.data.tasks || [];
     return {
       connected: this.dbConnected,
+      loading: this.isLoading,
+      lastError: this.lastError,
       type: 'MySQL (MariaDB)',
       database: 'tugasin_db',
-      host: '127.0.0.1:3306'
+      host: '127.0.0.1:3306',
+      counts: {
+        semesters: (this.data.semesters || []).length,
+        courses: (this.data.courses || []).length,
+        tasks: tasks.length,
+        activeTasks: tasks.filter(t => !t.dihapus_pada).length,
+        trashedTasks: tasks.filter(t => t.dihapus_pada).length,
+        projects: (this.data.projects || []).length,
+        statuses: (this.data.statuses || []).length
+      }
     };
   }
 
   save() {
-    this.saveLocalOnly();
+    // Notify reactive subscribers of state change
     this.notify();
-  }
-
-  saveLocalOnly() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
-    } catch (e) {
-      console.error('Failed to save to localStorage:', e);
-    }
   }
 
   subscribe(listener) {
@@ -388,6 +438,7 @@ class Store {
       subtasks: task.subtasks || [],
       tags: task.tags || [],
       custom_values: task.custom_values || {},
+      attachments: task.attachments || [],
       dihapus_pada: null
     };
 
@@ -571,7 +622,7 @@ class Store {
     return new Date(task.deadline) < new Date();
   }
 
-  // --- SETTINGS & BACKUP ---
+  // --- SETTINGS ---
   getSettings() {
     return this.data.settings || {};
   }
@@ -582,22 +633,16 @@ class Store {
     this.sendToBackend('save_settings', this.data.settings);
   }
 
-  exportJSON() {
-    return JSON.stringify(this.data, null, 2);
-  }
-
-  async importJSON(jsonString) {
+  async clearAllData() {
     try {
-      const parsed = JSON.parse(jsonString);
-      if (!parsed.tasks || !parsed.courses || !parsed.semesters) {
-        throw new Error('Format data JSON tidak valid.');
+      const res = await this.sendToBackend('clear_all_data');
+      if (res && res.ok) {
+        await this.fetchFromBackend();
+        return true;
       }
-      this.data = parsed;
-      this.save();
-      await this.syncAllToMySQL();
-      return true;
+      return false;
     } catch (e) {
-      console.error('Import error:', e);
+      console.error('Clear all data error:', e);
       return false;
     }
   }
@@ -609,123 +654,11 @@ class Store {
         await this.fetchFromBackend();
         return true;
       }
+      return false;
     } catch (e) {
-      console.error('Reset error:', e);
+      console.error('Reset database error:', e);
+      return false;
     }
-    this.data = this.getSeedData();
-    this.save();
-    return true;
-  }
-
-  getSeedData() {
-    const now = new Date();
-    const dateAt = (offsetDays, hours = 23, minutes = 59) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() + offsetDays);
-      d.setHours(hours, minutes, 0, 0);
-      return d.toISOString();
-    };
-
-    const sem1Id = 'sem_5';
-    const semArchivedId = 'sem_4';
-
-    const courses = [
-      { id: 'crs_web', semester_id: sem1Id, nama: 'Pemrograman Web & Mobile', kode: 'IF3101', dosen: 'Dr. Ir. Budi Santoso', sks: 3, warna: '#0284C7', ikon: 'code', urutan: 1 },
-      { id: 'crs_db', semester_id: sem1Id, nama: 'Basis Data Lanjut', kode: 'IF3102', dosen: 'Siti Rahma, M.Kom', sks: 3, warna: '#D97706', ikon: 'database', urutan: 2 },
-      { id: 'crs_ai', semester_id: sem1Id, nama: 'Kecerdasan Buatan', kode: 'IF3103', dosen: 'Hendra Wijaya, Ph.D', sks: 3, warna: '#2563EB', ikon: 'cpu', urutan: 3 },
-      { id: 'crs_dist', semester_id: sem1Id, nama: 'Sistem Terdistribusi', kode: 'IF3104', dosen: 'Agus Pratama, M.T', sks: 3, warna: '#7C3AED', ikon: 'server', urutan: 4 },
-      { id: 'crs_uiux', semester_id: sem1Id, nama: 'Desain Interaksi & UI/UX', kode: 'IF3105', dosen: 'Diana Lestari, M.Ds', sks: 2, warna: '#DB2777', ikon: 'layout', urutan: 5 }
-    ];
-
-    const statuses = [
-      { id: 'st_todo', nama: 'Belum Mulai', urutan: 0, apakah_selesai: false },
-      { id: 'st_prog', nama: 'Sedang Dikerjakan', urutan: 1, apakah_selesai: false },
-      { id: 'st_rev', nama: 'Butuh Review', urutan: 2, apakah_selesai: false },
-      { id: 'st_done', nama: 'Selesai', urutan: 3, apakah_selesai: true }
-    ];
-
-    const projects = [
-      { id: 'prj_ecom', user_id: 'usr_me', nama: 'Tugas Besar: Portal E-Commerce Kampus', deskripsi: 'Aplikasi fullstack e-commerce untuk kantin dan koperasi mahasiswa.', deadline: dateAt(14), status: 'Sedang Berjalan' },
-      { id: 'prj_ai_img', user_id: 'usr_me', nama: 'Mini Project: Klasifikasi Citra Medis', deskripsi: 'Model CNN transfer learning menggunakan PyTorch untuk deteksi paru-paru.', deadline: dateAt(21), status: 'Perencanaan' }
-    ];
-
-    const tasks = [
-      {
-        id: 'tsk_1', course_id: 'crs_web', project_id: 'prj_ecom', status_id: 'st_prog',
-        judul: 'Implementasi REST API Autentikasi JWT & Role Admin',
-        deskripsi: 'Membuat endpoint login, register, refresh token, dan middleware role authorization.',
-        prioritas: 'Tinggi', deadline: dateAt(0, 23, 59), urutan: 0,
-        subtasks: [
-          { id: 'sub_1', judul: 'Setup schema User dan Token', selesai: true },
-          { id: 'sub_2', judul: 'Implementasi route login & hashing bcrypt', selesai: true },
-          { id: 'sub_3', judul: 'Middleware verifikasi JWT access token', selesai: false },
-          { id: 'sub_4', judul: 'Unit testing authorization admin', selesai: false }
-        ],
-        tags: ['Backend', 'Tugas Besar'], custom_values: { url: 'https://github.com/tugasin/api-core' }, dihapus_pada: null
-      },
-      {
-        id: 'tsk_2', course_id: 'crs_db', project_id: null, status_id: 'st_todo',
-        judul: 'Laporan Praktikum 4: Optimasi Query & Normalisasi BCNF',
-        deskripsi: 'Menganalisis query plan EXPLAIN pada tabel 1 juta baris dan membuat indeks komposit.',
-        prioritas: 'Mendesak', deadline: dateAt(1, 17, 0), urutan: 1,
-        subtasks: [
-          { id: 'sub_5', judul: 'Jalankan EXPLAIN ANALYZE query lambat', selesai: true },
-          { id: 'sub_6', judul: 'Buat B-Tree composite index', selesai: false },
-          { id: 'sub_7', judul: 'Tulis pembahasan perbandingan execution time di laporan', selesai: false }
-        ],
-        tags: ['Praktikum', 'Laporan'], custom_values: {}, dihapus_pada: null
-      },
-      {
-        id: 'tsk_3', course_id: 'crs_ai', project_id: 'prj_ai_img', status_id: 'st_prog',
-        judul: 'Pembersihan Dataset Citra & Augmentasi Data (PyTorch)',
-        deskripsi: 'Melakukan resize 224x224, rotasi acak, flip horizontal, dan normalisasi mean/std ImageNet.',
-        prioritas: 'Sedang', deadline: dateAt(3, 21, 0), urutan: 2,
-        subtasks: [
-          { id: 'sub_8', judul: 'Download raw DICOM / PNG images', selesai: true },
-          { id: 'sub_9', judul: 'Buat custom PyTorch Dataset & DataLoader', selesai: false }
-        ],
-        tags: ['Kecerdasan Buatan', 'Machine Learning'], custom_values: { url: 'https://kaggle.com/datasets/medical-chest' }, dihapus_pada: null
-      },
-      {
-        id: 'tsk_4', course_id: 'crs_uiux', project_id: 'prj_ecom', status_id: 'st_rev',
-        judul: 'Hi-Fi Prototyping & Usability Testing Alur Checkout',
-        deskripsi: 'Menyelesaikan prototype interaktif Figma alur checkout payment gateway dan tes ke 5 responden.',
-        prioritas: 'Tinggi', deadline: dateAt(2, 12, 0), urutan: 3,
-        subtasks: [
-          { id: 'sub_10', judul: 'Selesaikan layout mobile screen checkout', selesai: true },
-          { id: 'sub_11', judul: 'Hubungkan micro-interaction feedback bayar', selesai: true },
-          { id: 'sub_12', judul: 'Susun lembar usability testing (SUS score)', selesai: false }
-        ],
-        tags: ['UI/UX', 'Figma'], custom_values: { url: 'https://figma.com/file/checkout-prototype' }, dihapus_pada: null
-      },
-      {
-        id: 'tsk_5', course_id: 'crs_dist', project_id: null, status_id: 'st_todo',
-        judul: 'Tugas Mandiri: Simulasi Algoritma Konsensus Raft',
-        deskripsi: 'Membaca paper Ongaro (2014) dan membuat ringkasan mekanisme leader election & log replication.',
-        prioritas: 'Rendah', deadline: dateAt(6, 23, 59), urutan: 4,
-        subtasks: [], tags: ['Tugas Teori'], custom_values: {}, dihapus_pada: null
-      }
-    ];
-
-    return {
-      semesters: [
-        { id: sem1Id, nama: 'Semester 5 (Ganjil 2026/2027)', tanggal_mulai: '2026-09-01', tanggal_selesai: '2027-01-31', warna: '#2C5EF5', ikon: 'book-open', diarsipkan: false },
-        { id: semArchivedId, nama: 'Semester 4 (Genap 2025/2026)', tanggal_mulai: '2026-02-01', tanggal_selesai: '2026-06-30', warna: '#64748B', ikon: 'archive', diarsipkan: true }
-      ],
-      courses,
-      statuses,
-      projects,
-      tasks,
-      settings: {
-        theme: 'light',
-        telegram_bot_token: '',
-        telegram_chat_id: '',
-        telegram_enabled: false,
-        default_reminder_hours: [72, 24, 2],
-        snooze_minutes: 15,
-        timezone: 'Asia/Jakarta'
-      }
-    };
   }
 }
 

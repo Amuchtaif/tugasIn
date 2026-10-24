@@ -38,11 +38,11 @@ class KanbanView {
             </div>
             <div style="display: flex; gap: 4px; align-items: center;">
               <button class="btn btn-ghost btn-icon-sm" onclick="window.app.editStatusPrompt('${status.id}', '${this.escapeHtml(status.nama)}')" title="Ubah Nama Kolom">
-                ✎
+                <i class="fa-solid fa-pen"></i>
               </button>
               ${statuses.length > 1 ? `
                 <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteStatusConfirm('${status.id}')" title="Hapus Kolom">
-                  ✕
+                  <i class="fa-solid fa-xmark"></i>
                 </button>
               ` : ''}
             </div>
@@ -62,7 +62,7 @@ class KanbanView {
       html += `
           </div>
           <button class="kanban-add-card-btn" onclick="window.app.openQuickAddModalWithStatus('${status.id}')">
-            + Tambah task di sini
+            <i class="fa-solid fa-plus"></i> Tambah task di sini
           </button>
         </div>
       `;
@@ -71,7 +71,7 @@ class KanbanView {
     // Add new status column button
     html += `
       <button class="kanban-add-col-btn" onclick="window.app.addNewStatusPrompt()">
-        + Tambah Kolom Status
+        <i class="fa-solid fa-plus"></i> Tambah Kolom Status
       </button>
     `;
 
@@ -90,7 +90,7 @@ class KanbanView {
     if (task.subtasks && task.subtasks.length > 0) {
       const total = task.subtasks.length;
       const completed = task.subtasks.filter(s => s.selesai).length;
-      subtasksHtml = `<span class="subtask-counter-pill">✓ ${completed}/${total}</span>`;
+      subtasksHtml = `<span class="subtask-counter-pill"><i class="fa-solid fa-list-check" style="font-size: 0.72rem;"></i> ${completed}/${total}</span>`;
     }
 
     // Deadline
@@ -104,7 +104,7 @@ class KanbanView {
 
       deadlineHtml = `
         <span class="mono-label ${isOverdue ? 'overdue' : ''}" style="${isOverdue ? 'color: var(--color-danger); font-weight: 600;' : ''}">
-          ⏳ ${label}
+          <i class="fa-regular fa-clock" style="font-size: 0.72rem;"></i> ${label}
         </span>
       `;
     }
@@ -115,7 +115,7 @@ class KanbanView {
     // Attachments counter
     let attachmentsHtml = '';
     if (task.attachments && task.attachments.length > 0) {
-      attachmentsHtml = `<span class="attachment-pill" title="${task.attachments.length} lampiran gambar">🖼️ ${task.attachments.length}</span>`;
+      attachmentsHtml = `<span class="attachment-pill" title="${task.attachments.length} lampiran gambar"><i class="fa-solid fa-image" style="font-size: 0.72rem;"></i> ${task.attachments.length}</span>`;
     }
 
     return `

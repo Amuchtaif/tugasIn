@@ -1,561 +1,729 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TugasIn - Manajemen Tugas Kuliah & Proyek</title>
-  <meta name="description" content="Aplikasi web manajemen tugas kuliah dan proyek pribadi ala Notion dengan hierarki Semester, Mata Kuliah, Kanban, Kalender, dan Pengingat Telegram.">
+  <meta name="description"
+    content="Aplikasi web manajemen tugas kuliah dan proyek pribadi ala Notion dengan hierarki Semester, Mata Kuliah, Kanban, Kalender, dan Pengingat Telegram.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="css/style.css?v=1.2">
   <script>
-    (function() {
+    (function () {
       // Default theme: Glassline Light Mode (design-lightmode.md)
       var saved = localStorage.getItem('tugasin_theme') || 'light';
       document.documentElement.setAttribute('data-theme', saved);
+      
+      // Preserve sidebar collapsed state before DOM renders to prevent layout flicker
+      if (window.innerWidth > 900 && localStorage.getItem('tugasin_sidebar_collapsed') === 'true') {
+        document.documentElement.classList.add('sidebar-init-collapsed');
+      }
     })();
   </script>
 </head>
+
 <body>
 
-<div id="app-root">
-  <!-- SIDEBAR -->
-  <aside id="sidebar">
-    <div class="sidebar-header">
-      <a href="#" class="brand-badge" onclick="window.app.navigateTo('today'); return false;">
-        <div class="brand-logo-mark">T</div>
-        <span class="brand-name">TugasIn</span>
-      </a>
-      <button class="btn btn-ghost btn-sm" onclick="window.app.openQuickAddModal()" title="Quick Add Task (Q)">
-        <span class="mono-label" style="color: var(--color-tertiary);">[Q]</span>
-      </button>
-    </div>
+  <div id="app-root">
+    <!-- Mobile Sidebar Backdrop Overlay -->
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-    <div class="sidebar-content">
-      <!-- Main Views -->
-      <div>
-        <div class="nav-section-title">NAVIGASI UTAMA</div>
-        <div class="nav-item sidebar-nav-item active" data-view="today" onclick="window.app.navigateTo('today')">
-          <div class="nav-item-left">
-            <span>⚡</span>
-            <span>Hari Ini & Minggu Ini</span>
-          </div>
-          <span class="nav-counter" id="side-count-today">0</span>
-        </div>
-        <div class="nav-item sidebar-nav-item" data-view="all" onclick="window.app.navigateTo('all')">
-          <div class="nav-item-left">
-            <span>📋</span>
-            <span>Semua Tugas</span>
-          </div>
-          <span class="nav-counter" id="side-count-all">0</span>
-        </div>
-        <div class="nav-item sidebar-nav-item" data-view="project" onclick="window.app.navigateTo('project')">
-          <div class="nav-item-left">
-            <span>🚀</span>
-            <span>Proyek & Tugas Besar</span>
-          </div>
-        </div>
-        <div class="nav-item sidebar-nav-item" data-view="archive" onclick="window.app.navigateTo('archive')">
-          <div class="nav-item-left">
-            <span>📦</span>
-            <span>Arsip Semester</span>
-          </div>
-        </div>
-        <div class="nav-item sidebar-nav-item" data-view="trash" onclick="window.app.navigateTo('trash')">
-          <div class="nav-item-left">
-            <span>🗑️</span>
-            <span>Sampah</span>
-          </div>
-          <span class="nav-counter" id="side-count-trash">0</span>
-        </div>
-      </div>
-
-      <!-- Semesters and Courses Tree -->
-      <div>
-        <div class="nav-section-title">
-          <span>SEMESTER & MATA KULIAH</span>
-          <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openSemesterModal()" title="Tambah Semester Baru">
-            +
+    <!-- SIDEBAR -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <a href="#" class="brand-badge" onclick="window.app.navigateTo('today'); return false;">
+          <div class="brand-logo-mark">T</div>
+          <span class="brand-name">TugasIn</span>
+        </a>
+        <div class="sidebar-header-actions">
+          <button class="btn btn-ghost btn-sm" onclick="window.app.openQuickAddModal()" title="Quick Add Task (Q)">
+            <span class="mono-label" style="color: var(--color-tertiary); font-weight: 600;">[Q]</span>
+          </button>
+          <button id="sidebar-collapse-btn" class="btn btn-ghost btn-icon-sm sidebar-collapse-btn" onclick="window.app.toggleSidebar()" title="Sembunyikan Sidebar (Ctrl+B)">
+            <i class="fa-solid fa-chevron-left"></i>
           </button>
         </div>
-        <div id="semester-tree-container" style="display: flex; flex-direction: column; gap: 8px;">
-          <!-- Dynamically populated -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Sidebar Footer -->
-    <div class="sidebar-footer">
-      <div class="nav-item sidebar-nav-item" data-view="settings" onclick="window.app.navigateTo('settings')">
-        <div class="nav-item-left">
-          <span>⚙️</span>
-          <span>Pengaturan & Database</span>
-        </div>
-      </div>
-      <div style="padding: 4px 10px 2px; display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-muted); font-family: var(--font-mono);">
-        <span style="display: flex; align-items: center; gap: 6px;">
-          <span class="status-dot active" style="width: 6px; height: 6px;" title="Terhubung ke MySQL"></span>
-          <span>MySQL (tugasin_db)</span>
-        </span>
-        <span>v1.0</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- MAIN CONTAINER -->
-  <main id="main-container">
-    <!-- TOP APP BAR -->
-    <header id="top-bar">
-      <div class="top-bar-left">
-        <button id="mobile-menu-btn" class="btn btn-secondary btn-icon mobile-menu-btn" title="Buka Navigasi">
-          ☰
-        </button>
-        <div class="breadcrumb-path">
-          <span id="breadcrumb-parent" class="mono-label">TugasIn</span>
-          <span>/</span>
-          <span id="breadcrumb-title" class="breadcrumb-active">Hari Ini & Minggu Ini</span>
-        </div>
       </div>
 
-      <!-- Quick Search Bar -->
-      <div class="top-bar-center">
-        <div class="search-input-wrapper">
-          <span class="search-icon">🔍</span>
-          <input type="search" id="global-search" placeholder="Cari tugas, tag, atau mata kuliah...">
-          <span class="kbd-shortcut">/</span>
-        </div>
-      </div>
-
-      <!-- Top Bar Right: Stats & Primary CTA -->
-      <div class="top-bar-right">
-        <div class="stats-strip">
-          <div class="stat-pill" title="Tugas due hari ini">
-            <span>Hari ini:</span>
-            <span class="stat-num" id="stat-today-count">0</span>
+      <div class="sidebar-content">
+        <!-- Main Views -->
+        <div>
+          <div class="nav-section-title">NAVIGASI UTAMA</div>
+          <div class="nav-item sidebar-nav-item active" data-view="today" onclick="window.app.navigateTo('today')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-bolt" style="width: 16px; text-align: center;"></i>
+              <span>Hari Ini & Minggu Ini</span>
+            </div>
+            <span class="nav-counter" id="side-count-today">0</span>
           </div>
-          <div class="stat-pill" title="Tugas melewati deadline">
-            <span>Overdue:</span>
-            <span class="stat-num overdue" id="stat-overdue-count">0</span>
+          <div class="nav-item sidebar-nav-item" data-view="all" onclick="window.app.navigateTo('all')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-list-check" style="width: 16px; text-align: center;"></i>
+              <span>Semua Tugas</span>
+            </div>
+            <span class="nav-counter" id="side-count-all">0</span>
           </div>
-          <div class="stat-pill" title="Tugas sedang dikerjakan">
-            <span>In Prog:</span>
-            <span class="stat-num" id="stat-inprog-count">0</span>
+          <div class="nav-item sidebar-nav-item" data-view="project" onclick="window.app.navigateTo('project')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-rocket" style="width: 16px; text-align: center;"></i>
+              <span>Proyek & Tugas Besar</span>
+            </div>
+          </div>
+          <div class="nav-item sidebar-nav-item" data-view="archive" onclick="window.app.navigateTo('archive')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-box-archive" style="width: 16px; text-align: center;"></i>
+              <span>Arsip Semester</span>
+            </div>
+          </div>
+          <div class="nav-item sidebar-nav-item" data-view="trash" onclick="window.app.navigateTo('trash')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-trash-can" style="width: 16px; text-align: center;"></i>
+              <span>Sampah</span>
+            </div>
+            <span class="nav-counter" id="side-count-trash">0</span>
           </div>
         </div>
 
-        <!-- Theme Switcher Toggle (Glassline Light Mode / Graphite Dark Mode) -->
-        <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" onclick="window.app.toggleTheme()" title="Beralih ke Mode Gelap (Graphite)">
-          <span id="theme-toggle-icon">🌙</span>
-        </button>
-
-        <!-- Primary Action Button: Tertiary Cobalt Accent from design-lightmode.md -->
-        <button id="main-add-task-btn" class="btn btn-primary" onclick="window.app.openQuickAddModal()">
-          + Task Baru
-        </button>
-      </div>
-    </header>
-
-    <!-- VIEW TOOLBAR -->
-    <section class="view-toolbar">
-      <div class="toolbar-left">
-        <!-- View mode tabs: List / Kanban / Calendar -->
-        <div class="view-tabs">
-          <button class="tab-btn active" data-mode="list" onclick="window.app.setViewMode('list')">
-            ☰ List
-          </button>
-          <button class="tab-btn" data-mode="kanban" onclick="window.app.setViewMode('kanban')">
-            ▥ Kanban
-          </button>
-          <button class="tab-btn" data-mode="calendar" onclick="window.app.setViewMode('calendar')">
-            📅 Kalender
-          </button>
-        </div>
-
-        <!-- Filters -->
-        <div class="filter-group">
-          <select id="filter-priority" class="filter-select" onchange="window.app.filterPriority = this.value; window.app.renderCurrentView();">
-            <option value="">Semua Prioritas</option>
-            <option value="Mendesak">Mendesak</option>
-            <option value="Tinggi">Tinggi</option>
-            <option value="Sedang">Sedang</option>
-            <option value="Rendah">Rendah</option>
-          </select>
-
-          <select id="filter-status" class="filter-select" onchange="window.app.filterStatus = this.value; window.app.renderCurrentView();">
-            <option value="">Semua Status</option>
-            <option value="st_todo">Belum Mulai</option>
-            <option value="st_prog">Sedang Dikerjakan</option>
-            <option value="st_rev">Butuh Review</option>
-            <option value="st_done">Selesai</option>
-          </select>
+        <!-- Semesters and Courses Tree -->
+        <div>
+          <div class="nav-section-title">
+            <span>SEMESTER & MATA KULIAH</span>
+            <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openSemesterModal()"
+              title="Tambah Semester Baru">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          <div id="semester-tree-container" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Dynamically populated -->
+          </div>
         </div>
       </div>
 
-      <!-- Quick Add inline field -->
-      <form class="quick-add-bar" onsubmit="event.preventDefault(); const inp = this.querySelector('input'); if(inp.value.trim()) { window.store.addTask({ judul: inp.value.trim() }); inp.value = ''; }">
-        <span class="mono-label" style="color: var(--color-tertiary);">+</span>
-        <input type="text" class="quick-add-input" placeholder="Quick add: ketik judul tugas dan tekan Enter...">
-        <span class="mono-label" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="nav-item sidebar-nav-item" data-view="settings" onclick="window.app.navigateTo('settings')">
+          <div class="nav-item-left">
+            <i class="fa-solid fa-gear" style="width: 16px; text-align: center;"></i>
+            <span>Pengaturan & Database</span>
+          </div>
+        </div>
+        <div
+          style="padding: 6px 10px 4px; display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--color-muted); font-family: var(--font-mono);">
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span id="sidebar-db-dot" class="status-dot active" style="width: 6px; height: 6px;" title="Terhubung ke MySQL (tugasin_db)"></span>
+            <span>Andi Muchtaif, S.Kom (On Going)</span>
+          </span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTAINER -->
+    <main id="main-container">
+      <!-- TOP APP BAR -->
+      <header id="top-bar">
+        <div class="top-bar-left">
+          <button id="sidebar-toggle-btn" class="btn btn-secondary btn-icon sidebar-toggle-btn" onclick="window.app.toggleSidebar()" title="Sembunyikan/Tampilkan Sidebar (Ctrl+B)" aria-label="Toggle Sidebar">
+            <i id="sidebar-toggle-icon" class="fa-solid fa-bars"></i>
+          </button>
+          <div class="breadcrumb-path">
+            <span id="breadcrumb-parent" class="mono-label">TugasIn</span>
+            <span>/</span>
+            <span id="breadcrumb-title" class="breadcrumb-active">Hari Ini & Minggu Ini</span>
+          </div>
+        </div>
+
+        <!-- Quick Search Bar -->
+        <div class="top-bar-center">
+          <div class="search-input-wrapper">
+            <span class="search-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
+            <input type="search" id="global-search" placeholder="Cari tugas, tag, atau mata kuliah...">
+            <span class="kbd-shortcut">/</span>
+          </div>
+        </div>
+
+        <!-- Top Bar Right: Stats & Primary CTA -->
+        <div class="top-bar-right">
+          <div class="stats-strip">
+            <div class="stat-pill" title="Tugas due hari ini">
+              <span>Hari ini:</span>
+              <span class="stat-num" id="stat-today-count">0</span>
+            </div>
+            <div class="stat-pill" title="Tugas melewati deadline">
+              <span>Overdue:</span>
+              <span class="stat-num overdue" id="stat-overdue-count">0</span>
+            </div>
+            <div class="stat-pill" title="Tugas sedang dikerjakan">
+              <span>In Prog:</span>
+              <span class="stat-num" id="stat-inprog-count">0</span>
+            </div>
+          </div>
+
+          <!-- Theme Switcher Toggle (Glassline Light Mode / Graphite Dark Mode) -->
+          <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" onclick="window.app.toggleTheme()"
+            title="Beralih ke Mode Gelap (Graphite)">
+            <span id="theme-toggle-icon"><i class="fa-solid fa-moon"></i></span>
+          </button>
+
+          <!-- Primary Action Button: Tertiary Cobalt Accent from design-lightmode.md -->
+          <button id="main-add-task-btn" class="btn btn-primary" onclick="window.app.openQuickAddModal()">
+            <i class="fa-solid fa-plus"></i> Task Baru
+          </button>
+        </div>
+      </header>
+
+      <!-- GREETING & REMINDER HERO SECTION -->
+      <section id="greeting-section" class="greeting-section">
+        <div class="greeting-card">
+          <div class="greeting-left">
+            <div class="greeting-icon-wrapper" id="greeting-icon-box">
+              <i id="greeting-time-icon" class="fa-solid fa-cloud-sun"></i>
+            </div>
+            <div class="greeting-text">
+              <div class="greeting-title-row">
+                <h1 class="greeting-title" id="greeting-title-text">Selamat Datang, Andi Muchtaif!</h1>
+                <span class="greeting-time-badge" id="greeting-date-text">Memuat tanggal...</span>
+              </div>
+              <p class="greeting-subtitle" id="greeting-subtitle-text">
+                Tetap teratur dan produktif! Pantau tugas kuliah dan target deadline hari ini.
+              </p>
+            </div>
+          </div>
+
+          <div class="greeting-reminders">
+            <!-- Reminder 1: Deadline Hari Ini -->
+            <div class="reminder-card reminder-deadline" id="reminder-card-deadline" onclick="window.app.filterByTodayDeadline()" title="Klik untuk memantau tugas jatuh tempo hari ini">
+              <div class="reminder-icon-box deadline-icon">
+                <i class="fa-solid fa-calendar-day"></i>
+              </div>
+              <div class="reminder-content">
+                <div class="reminder-val-row">
+                  <span class="reminder-value" id="reminder-today-count">0</span>
+                  <span class="reminder-label">Tugas</span>
+                </div>
+                <div class="reminder-desc">Deadline Hari Ini</div>
+              </div>
+            </div>
+
+            <!-- Reminder 2: Sedang Dikerjakan (On Going) -->
+            <div class="reminder-card reminder-ongoing" id="reminder-card-ongoing" onclick="window.app.filterByOngoing()" title="Klik untuk melihat tugas yang sedang dikerjakan">
+              <div class="reminder-icon-box ongoing-icon">
+                <i class="fa-solid fa-bars-progress"></i>
+              </div>
+              <div class="reminder-content">
+                <div class="reminder-val-row">
+                  <span class="reminder-value" id="reminder-ongoing-count">0</span>
+                  <span class="reminder-label">Tugas</span>
+                </div>
+                <div class="reminder-desc">Sedang Dikerjakan (On Going)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW TOOLBAR -->
+      <section class="view-toolbar">
+        <div class="toolbar-left">
+          <!-- View mode tabs: List / Kanban / Calendar -->
+          <div class="view-tabs">
+            <button class="tab-btn active" data-mode="list" onclick="window.app.setViewMode('list')">
+              <i class="fa-solid fa-list-ul"></i> List
+            </button>
+            <button class="tab-btn" data-mode="kanban" onclick="window.app.setViewMode('kanban')">
+              <i class="fa-solid fa-table-columns"></i> Kanban
+            </button>
+            <button class="tab-btn" data-mode="calendar" onclick="window.app.setViewMode('calendar')">
+              <i class="fa-regular fa-calendar-days"></i> Kalender
+            </button>
+          </div>
+
+          <!-- Filters -->
+          <div class="filter-group">
+            <select id="filter-priority" class="filter-select"
+              onchange="window.app.filterPriority = this.value; window.app.renderCurrentView();">
+              <option value="">Semua Prioritas</option>
+              <option value="Mendesak">Mendesak</option>
+              <option value="Tinggi">Tinggi</option>
+              <option value="Sedang">Sedang</option>
+              <option value="Rendah">Rendah</option>
+            </select>
+
+            <select id="filter-status" class="filter-select"
+              onchange="window.app.filterStatus = this.value; window.app.renderCurrentView();">
+              <option value="">Semua Status</option>
+              <option value="st_todo">Belum Mulai</option>
+              <option value="st_prog">Sedang Dikerjakan</option>
+              <option value="st_rev">Butuh Review</option>
+              <option value="st_done">Selesai</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Quick Add inline field -->
+        <form class="quick-add-bar"
+          onsubmit="event.preventDefault(); const inp = this.querySelector('input'); if(inp.value.trim()) { window.store.addTask({ judul: inp.value.trim() }); inp.value = ''; }">
+          <span class="mono-label" style="color: var(--color-tertiary);"><i class="fa-solid fa-plus"></i></span>
+          <input type="text" class="quick-add-input" placeholder="Quick add: ketik judul tugas dan tekan Enter...">
+          <span class="mono-label" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
+        </form>
+      </section>
+
+      <!-- DYNAMIC VIEW BODY -->
+      <div id="view-body" class="view-body">
+        <!-- Injected by list, kanban, calendar, or settings view -->
+      </div>
+    </main>
+  </div>
+
+  <!-- IN-APP TOAST CONTAINER -->
+  <div id="toast-container"></div>
+
+  <!-- MODAL: QUICK ADD TASK (< 10 detik!) -->
+  <div id="quick-add-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="h2">Tambah Task Cepat</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('quick-add-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.submitQuickAdd(event)">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Judul Tugas *</label>
+            <input type="text" id="qa-title" required placeholder="Contoh: Laporan Praktikum 3 Basis Data" autofocus>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Mata Kuliah</label>
+              <select id="qa-course"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Status Awal</label>
+              <select id="qa-status"></select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Prioritas</label>
+              <select id="qa-priority">
+                <option value="Sedang">Sedang</option>
+                <option value="Tinggi">Tinggi</option>
+                <option value="Mendesak">Mendesak</option>
+                <option value="Rendah">Rendah</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Deadline</label>
+              <input type="datetime-local" id="qa-deadline">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Tautkan ke Proyek (Opsional)</label>
+            <select id="qa-project"></select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary"
+            onclick="window.app.closeModal('quick-add-modal')">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Task</button>
+        </div>
       </form>
-    </section>
-
-    <!-- DYNAMIC VIEW BODY -->
-    <div id="view-body" class="view-body">
-      <!-- Injected by list, kanban, calendar, or settings view -->
     </div>
-  </main>
-</div>
-
-<!-- IN-APP TOAST CONTAINER -->
-<div id="toast-container"></div>
-
-<!-- MODAL: QUICK ADD TASK (< 10 detik!) -->
-<div id="quick-add-modal" class="modal-overlay">
-  <div class="modal-dialog">
-    <div class="modal-header">
-      <div class="h2">Tambah Task Cepat</div>
-      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('quick-add-modal')">✕</button>
-    </div>
-    <form onsubmit="window.app.submitQuickAdd(event)">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Judul Tugas *</label>
-          <input type="text" id="qa-title" required placeholder="Contoh: Laporan Praktikum 3 Basis Data" autofocus>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Mata Kuliah</label>
-            <select id="qa-course"></select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Status Awal</label>
-            <select id="qa-status"></select>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Prioritas</label>
-            <select id="qa-priority">
-              <option value="Sedang">Sedang</option>
-              <option value="Tinggi">Tinggi</option>
-              <option value="Mendesak">Mendesak</option>
-              <option value="Rendah">Rendah</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Deadline</label>
-            <input type="datetime-local" id="qa-deadline">
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">Tautkan ke Proyek (Opsional)</label>
-          <select id="qa-project"></select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('quick-add-modal')">Batal</button>
-        <button type="submit" class="btn btn-primary">Simpan Task</button>
-      </div>
-    </form>
   </div>
-</div>
 
-<!-- MODAL: DETAIL & EDIT TASK -->
-<div id="task-detail-modal" class="modal-overlay">
-  <div class="modal-dialog modal-dialog-large">
-    <div class="modal-header">
-      <div class="h2" id="task-modal-title" style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
-      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('task-detail-modal')">✕</button>
+  <!-- MODAL: DETAIL & EDIT TASK -->
+  <div id="task-detail-modal" class="modal-overlay">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <div class="h2" id="task-modal-title"
+          style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('task-detail-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.saveTaskDetail(event)">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Judul Tugas</label>
+            <input type="text" id="edit-task-title" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Deskripsi / Catatan Blok</label>
+            <textarea id="edit-task-desc" rows="3"
+              placeholder="Tulis instruksi tugas, kriteria pengumpulan, link referensi..."></textarea>
+          </div>
+
+          <div class="form-row-3">
+            <div class="form-group">
+              <label class="form-label">Mata Kuliah</label>
+              <select id="edit-task-course"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select id="edit-task-status"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Prioritas</label>
+              <select id="edit-task-priority">
+                <option value="Mendesak">Mendesak</option>
+                <option value="Tinggi">Tinggi</option>
+                <option value="Sedang">Sedang</option>
+                <option value="Rendah">Rendah</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Deadline (Tanggal & Jam)</label>
+              <input type="datetime-local" id="edit-task-deadline">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tag / Label (Pisahkan koma)</label>
+              <input type="text" id="edit-task-tags" placeholder="Praktikum, Tugas Besar, Presentasi">
+            </div>
+          </div>
+
+          <!-- Custom Field (URL) -->
+          <div class="form-group">
+            <label class="form-label">Tautan Eksternal (GitHub / Figma / Google Drive)</label>
+            <input type="text" id="edit-task-custom-url" placeholder="https://...">
+          </div>
+
+          <!-- Subtasks Checklist Section -->
+          <div class="form-group">
+            <label class="form-label">Subtask & Checklist</label>
+            <div class="subtask-builder">
+              <div id="subtask-editor-list" class="subtask-list"></div>
+              <div style="display: flex; gap: 8px; margin-top: 6px;">
+                <input type="text" id="new-subtask-input" placeholder="Tambah subtask baru..." style="height: 32px;"
+                  onkeydown="if(event.key==='Enter'){event.preventDefault(); window.app.addSubtask();}">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.addSubtask()"><i class="fa-solid fa-plus"></i> Tambah</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Attachments Section (Gambar Pendukung) -->
+          <div class="form-group" style="margin-top: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <label class="form-label" style="margin-bottom: 0;">Gambar Pendukung (Opsional)</label>
+              <span id="attachment-counter" class="mono-label" style="font-size: 0.75rem; color: var(--color-muted);">0
+                / 10 gambar</span>
+            </div>
+
+            <!-- Drag and Drop Upload Area -->
+            <div id="attachment-dropzone" class="attachment-dropzone"
+              ondragover="window.app.handleAttachmentDragOver(event)"
+              ondragleave="window.app.handleAttachmentDragLeave(event)" ondrop="window.app.handleAttachmentDrop(event)">
+              <input type="file" id="attachment-file-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple
+                style="display: none;" onchange="window.app.handleAttachmentFileSelect(event)">
+              <div style="font-size: 1.8rem; margin-bottom: 6px; color: var(--color-tertiary);"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+              <div style="font-size: 0.85rem; font-weight: 500; color: var(--color-primary); margin-bottom: 4px;">
+                Tarik & jatuhkan gambar ke sini, atau
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                <button type="button" class="btn btn-secondary btn-sm"
+                  onclick="document.getElementById('attachment-file-input').click()">
+                  Pilih File Gambar
+                </button>
+                <span class="mono-label" style="font-size: 0.72rem; color: var(--color-muted);">atau tempel tangkapan
+                  layar (Ctrl+V)</span>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--color-muted);">
+                Maks 5 MB per gambar (JPG, PNG, WebP, GIF) · Maksimal 10 gambar per task
+              </div>
+            </div>
+
+            <!-- Upload Progress / Status Message -->
+            <div id="attachment-upload-status" class="mono-label"
+              style="font-size: 0.8rem; margin-top: 6px; display: none;"></div>
+
+            <!-- Attachments Thumbnails Grid -->
+            <div id="attachment-grid" class="attachment-grid"></div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-danger" onclick="window.app.deleteTaskFromModal()">
+            Pindahkan ke Sampah
+          </button>
+          <div style="flex: 1;"></div>
+          <button type="button" class="btn btn-secondary"
+            onclick="window.app.closeModal('task-detail-modal')">Tutup</button>
+          <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+        </div>
+      </form>
     </div>
-    <form onsubmit="window.app.saveTaskDetail(event)">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Judul Tugas</label>
-          <input type="text" id="edit-task-title" required>
-        </div>
+  </div>
 
-        <div class="form-group">
-          <label class="form-label">Deskripsi / Catatan Blok</label>
-          <textarea id="edit-task-desc" rows="3" placeholder="Tulis instruksi tugas, kriteria pengumpulan, link referensi..."></textarea>
-        </div>
-
-        <div class="form-row-3">
+  <!-- MODAL: SEMESTER -->
+  <div id="semester-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="h2">Kelola Semester</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('semester-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.saveSemester(event)">
+        <input type="hidden" id="sem-modal-id">
+        <div class="modal-body">
           <div class="form-group">
-            <label class="form-label">Mata Kuliah</label>
-            <select id="edit-task-course"></select>
+            <label class="form-label">Nama Semester *</label>
+            <input type="text" id="sem-modal-name" required placeholder="Contoh: Semester 5 (Ganjil 2026/2027)">
           </div>
-          <div class="form-group">
-            <label class="form-label">Status</label>
-            <select id="edit-task-status"></select>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tanggal Mulai</label>
+              <input type="date" id="sem-modal-start">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tanggal Selesai</label>
+              <input type="date" id="sem-modal-end">
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Prioritas</label>
-            <select id="edit-task-priority">
-              <option value="Mendesak">Mendesak</option>
-              <option value="Tinggi">Tinggi</option>
-              <option value="Sedang">Sedang</option>
-              <option value="Rendah">Rendah</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Deadline (Tanggal & Jam)</label>
-            <input type="datetime-local" id="edit-task-deadline">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Tag / Label (Pisahkan koma)</label>
-            <input type="text" id="edit-task-tags" placeholder="Praktikum, Tugas Besar, Presentasi">
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
+            <input type="checkbox" id="sem-modal-archive" style="width: auto;">
+            <label for="sem-modal-archive" style="font-size: 0.88rem; cursor: pointer;">Arsipkan semester ini
+              (sembunyikan dari tampilan utama)</label>
           </div>
         </div>
-
-        <!-- Custom Field (URL) -->
-        <div class="form-group">
-          <label class="form-label">Tautan Eksternal (GitHub / Figma / Google Drive)</label>
-          <input type="text" id="edit-task-custom-url" placeholder="https://...">
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary"
+            onclick="window.app.closeModal('semester-modal')">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Semester</button>
         </div>
+      </form>
+    </div>
+  </div>
 
-        <!-- Subtasks Checklist Section -->
-        <div class="form-group">
-          <label class="form-label">Subtask & Checklist</label>
-          <div class="subtask-builder">
-            <div id="subtask-editor-list" class="subtask-list"></div>
-            <div style="display: flex; gap: 8px; margin-top: 6px;">
-              <input type="text" id="new-subtask-input" placeholder="Tambah subtask baru..." style="height: 32px;" onkeydown="if(event.key==='Enter'){event.preventDefault(); window.app.addSubtask();}">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.addSubtask()">+ Tambah</button>
+  <!-- MODAL: COURSE -->
+  <div id="course-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="h2">Kelola Mata Kuliah</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('course-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.saveCourse(event)">
+        <input type="hidden" id="course-modal-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Nama Mata Kuliah *</label>
+            <input type="text" id="course-modal-name" required placeholder="Contoh: Pemrograman Web & Mobile">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Kode MK</label>
+              <input type="text" id="course-modal-code" placeholder="IF3101">
+            </div>
+            <div class="form-group">
+              <label class="form-label">SKS</label>
+              <input type="number" id="course-modal-sks" min="1" max="6" value="3">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Dosen Pengampu</label>
+            <input type="text" id="course-modal-lecturer" placeholder="Contoh: Dr. Ir. Budi Santoso">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Semester</label>
+            <select id="course-modal-sem"></select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('course-modal')">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Mata Kuliah</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: PROJECT -->
+  <div id="project-modal" class="modal-overlay">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="h2">Kelola Proyek & Tugas Besar</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('project-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.saveProject(event)">
+        <input type="hidden" id="proj-modal-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Nama Proyek *</label>
+            <input type="text" id="proj-modal-name" required placeholder="Contoh: Tugas Besar: Portal E-Commerce">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deskripsi</label>
+            <textarea id="proj-modal-desc" rows="3" placeholder="Penjelasan ruang lingkup proyek..."></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Target Deadline</label>
+              <input type="date" id="proj-modal-deadline">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select id="proj-modal-status">
+                <option value="Perencanaan">Perencanaan</option>
+                <option value="Sedang Berjalan">Sedang Berjalan</option>
+                <option value="Tahap Uji">Tahap Uji</option>
+                <option value="Selesai">Selesai</option>
+              </select>
             </div>
           </div>
         </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary"
+            onclick="window.app.closeModal('project-modal')">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Proyek</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
-        <!-- Attachments Section (Gambar Pendukung) -->
-        <div class="form-group" style="margin-top: 14px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-            <label class="form-label" style="margin-bottom: 0;">Gambar Pendukung (Opsional)</label>
-            <span id="attachment-counter" class="mono-label" style="font-size: 0.75rem; color: var(--color-muted);">0 / 10 gambar</span>
-          </div>
-
-          <!-- Drag and Drop Upload Area -->
-          <div id="attachment-dropzone" class="attachment-dropzone"
-               ondragover="window.app.handleAttachmentDragOver(event)"
-               ondragleave="window.app.handleAttachmentDragLeave(event)"
-               ondrop="window.app.handleAttachmentDrop(event)">
-            <input type="file" id="attachment-file-input" accept="image/jpeg,image/png,image/webp,image/gif" multiple style="display: none;" onchange="window.app.handleAttachmentFileSelect(event)">
-            <div style="font-size: 1.5rem; margin-bottom: 4px;">🖼️</div>
-            <div style="font-size: 0.85rem; font-weight: 500; color: var(--color-primary); margin-bottom: 4px;">
-              Tarik & jatuhkan gambar ke sini, atau
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('attachment-file-input').click()">
-                Pilih File Gambar
-              </button>
-              <span class="mono-label" style="font-size: 0.72rem; color: var(--color-muted);">atau tempel tangkapan layar (Ctrl+V)</span>
-            </div>
-            <div style="font-size: 0.75rem; color: var(--color-muted);">
-              Maks 5 MB per gambar (JPG, PNG, WebP, GIF) · Maksimal 10 gambar per task
-            </div>
-          </div>
-
-          <!-- Upload Progress / Status Message -->
-          <div id="attachment-upload-status" class="mono-label" style="font-size: 0.8rem; margin-top: 6px; display: none;"></div>
-
-          <!-- Attachments Thumbnails Grid -->
-          <div id="attachment-grid" class="attachment-grid"></div>
+  <!-- MODAL: IMAGE PREVIEW & LIGHTBOX (Task 4) -->
+  <div id="image-preview-modal" class="image-preview-overlay" role="dialog" aria-modal="true" style="display: none;"
+    onclick="window.app.handlePreviewBackdropClick(event)">
+    <div class="image-preview-container" onclick="event.stopPropagation()">
+      <!-- Header Bar -->
+      <div class="image-preview-header">
+        <div class="image-preview-title-box">
+          <span id="preview-filename" class="image-preview-filename">image.jpg</span>
+          <span id="preview-counter" class="image-preview-counter">1 / 1</span>
+          <span id="preview-filesize" class="mono-label" style="font-size: 0.72rem; color: #94A3B8;"></span>
+        </div>
+        <div class="image-preview-controls">
+          <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomOut()"
+            title="Perkecil (Zoom Out)"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+          <button type="button" class="btn btn-ghost btn-sm preview-btn" onclick="window.app.previewResetZoom()"
+            id="preview-zoom-label" title="Reset Zoom">100%</button>
+          <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomIn()"
+            title="Perbesar (Zoom In)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+          <button type="button" class="btn btn-ghost btn-icon-sm preview-btn"
+            onclick="window.app.downloadActivePreviewImage()" title="Unduh Gambar Asli"><i class="fa-solid fa-download"></i></button>
+          <button type="button" class="btn btn-ghost btn-icon-sm preview-btn"
+            onclick="window.app.deleteActivePreviewImage()" title="Hapus Gambar Ini"
+            style="color: #EF4444;"><i class="fa-solid fa-trash-can"></i></button>
+          <button type="button" class="btn btn-ghost btn-icon-sm preview-btn preview-close-btn"
+            onclick="window.app.closeImagePreviewModal()" title="Tutup (Esc)"><i class="fa-solid fa-xmark"></i></button>
         </div>
       </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn btn-danger" onclick="window.app.deleteTaskFromModal()">
-          Pindahkan ke Sampah
+      <!-- Main Viewport -->
+      <div class="image-preview-stage" id="image-preview-stage"
+        onmousedown="window.app.handlePreviewStageMouseDown(event)"
+        onmousemove="window.app.handlePreviewStageMouseMove(event)"
+        onmouseup="window.app.handlePreviewStageMouseUp(event)" ontouchstart="window.app.handlePreviewTouchStart(event)"
+        ontouchmove="window.app.handlePreviewTouchMove(event)" ontouchend="window.app.handlePreviewTouchEnd(event)">
+        <button type="button" class="preview-nav-btn prev-btn" id="preview-prev-btn"
+          onclick="window.app.previewPrevImage()" title="Gambar Sebelumnya (Panah Kiri)"><i class="fa-solid fa-chevron-left"></i></button>
+
+        <div class="image-preview-wrapper" id="image-preview-wrapper">
+          <div id="preview-loading-spinner" class="preview-spinner" style="display: none;"></div>
+          <img id="preview-full-img" class="image-preview-img" src="" alt="Preview Lampiran Tugas">
+        </div>
+
+        <button type="button" class="preview-nav-btn next-btn" id="preview-next-btn"
+          onclick="window.app.previewNextImage()" title="Gambar Selanjutnya (Panah Kanan)"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+
+      <!-- Caption / Footer Bar -->
+      <div class="image-preview-footer">
+        <div id="preview-caption-display" class="preview-caption-text"></div>
+        <div style="font-size: 0.72rem; color: #94A3B8; font-family: var(--font-mono);">
+          Navigasi: Panah Keyboard · Zoom: Drag / Tombol · Tutup: Esc
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: KONFIRMASI KOSONGKAN DATA (RESET TO NULL) -->
+  <div id="clear-data-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="h2" style="color: var(--color-danger); display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span>Kosongkan Seluruh Data</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon-sm"
+          onclick="window.app.closeModal('clear-data-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 0.92rem; line-height: 1.6; color: var(--color-secondary); margin-bottom: 14px;">
+          Tindakan ini akan <b>menghapus seluruh isi data</b> di database MySQL <code
+            style="font-family: var(--font-mono); background: var(--color-neutral); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-border);">tugasin_db</code>
+          sehingga bernilai kosong (<b>null data</b>):
+        </div>
+        <ul
+          style="font-size: 0.85rem; color: var(--color-muted); line-height: 1.8; margin-left: 20px; margin-bottom: 16px;">
+          <li>Semua Semester & Mata Kuliah akan dihapus</li>
+          <li>Semua Tugas (Tasks), Subtasks, dan Proyek akan dihapus</li>
+          <li>Semua berkas gambar lampiran di server akan dibersihkan</li>
+          <li>Status kolom Kanban diatur ulang ke 4 status dasar</li>
+        </ul>
+        <div
+          style="padding: 10px 14px; background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--color-danger); border-radius: 4px; font-size: 0.82rem; color: var(--color-danger); display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-triangle-exclamation"></i> <span><b>Perhatian:</b> Seluruh data akan dikosongkan permanen dari database server.</span>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('clear-data-modal')">
+          Batal
         </button>
-        <div style="flex: 1;"></div>
-        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('task-detail-modal')">Tutup</button>
-        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+        <button type="button" id="btn-execute-clear-null" class="btn btn-danger-solid"
+          onclick="window.app.executeClearAllData()">
+          Ya, Kosongkan Semua Data
+        </button>
       </div>
-    </form>
-  </div>
-</div>
-
-<!-- MODAL: SEMESTER -->
-<div id="semester-modal" class="modal-overlay">
-  <div class="modal-dialog">
-    <div class="modal-header">
-      <div class="h2">Kelola Semester</div>
-      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('semester-modal')">✕</button>
     </div>
-    <form onsubmit="window.app.saveSemester(event)">
-      <input type="hidden" id="sem-modal-id">
+  </div>
+
+  <!-- MODAL: KONFIRMASI RESET DEMO SEED -->
+  <div id="reset-demo-modal" class="modal-overlay" role="dialog" aria-modal="true">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="h2" style="display: flex; align-items: center; gap: 8px;">
+          <i class="fa-solid fa-rotate-left"></i>
+          <span>Isi Data Demo Bawaan</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon-sm"
+          onclick="window.app.closeModal('reset-demo-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
       <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Nama Semester *</label>
-          <input type="text" id="sem-modal-name" required placeholder="Contoh: Semester 5 (Ganjil 2026/2027)">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Tanggal Mulai</label>
-            <input type="date" id="sem-modal-start">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Tanggal Selesai</label>
-            <input type="date" id="sem-modal-end">
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px;">
-          <input type="checkbox" id="sem-modal-archive" style="width: auto;">
-          <label for="sem-modal-archive" style="font-size: 0.88rem; cursor: pointer;">Arsipkan semester ini (sembunyikan dari tampilan utama)</label>
+        <div style="font-size: 0.92rem; line-height: 1.6; color: var(--color-secondary); margin-bottom: 14px;">
+          Database MySQL <code
+            style="font-family: var(--font-mono); background: var(--color-neutral); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-border);">tugasin_db</code>
+          akan diatur ulang dan diisi dengan data contoh dari <code
+            style="font-family: var(--font-mono); background: var(--color-neutral); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--color-border);">database.sql</code>
+          (5 matakuliah, 5 tugas contoh, 2 semester).
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('semester-modal')">Batal</button>
-        <button type="submit" class="btn btn-primary">Simpan Semester</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- MODAL: COURSE -->
-<div id="course-modal" class="modal-overlay">
-  <div class="modal-dialog">
-    <div class="modal-header">
-      <div class="h2">Kelola Mata Kuliah</div>
-      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('course-modal')">✕</button>
-    </div>
-    <form onsubmit="window.app.saveCourse(event)">
-      <input type="hidden" id="course-modal-id">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Nama Mata Kuliah *</label>
-          <input type="text" id="course-modal-name" required placeholder="Contoh: Pemrograman Web & Mobile">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Kode MK</label>
-            <input type="text" id="course-modal-code" placeholder="IF3101">
-          </div>
-          <div class="form-group">
-            <label class="form-label">SKS</label>
-            <input type="number" id="course-modal-sks" min="1" max="6" value="3">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Dosen Pengampu</label>
-          <input type="text" id="course-modal-lecturer" placeholder="Contoh: Dr. Ir. Budi Santoso">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Semester</label>
-          <select id="course-modal-sem"></select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('course-modal')">Batal</button>
-        <button type="submit" class="btn btn-primary">Simpan Mata Kuliah</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- MODAL: PROJECT -->
-<div id="project-modal" class="modal-overlay">
-  <div class="modal-dialog">
-    <div class="modal-header">
-      <div class="h2">Kelola Proyek & Tugas Besar</div>
-      <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('project-modal')">✕</button>
-    </div>
-    <form onsubmit="window.app.saveProject(event)">
-      <input type="hidden" id="proj-modal-id">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Nama Proyek *</label>
-          <input type="text" id="proj-modal-name" required placeholder="Contoh: Tugas Besar: Portal E-Commerce">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Deskripsi</label>
-          <textarea id="proj-modal-desc" rows="3" placeholder="Penjelasan ruang lingkup proyek..."></textarea>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Target Deadline</label>
-            <input type="date" id="proj-modal-deadline">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Status</label>
-            <select id="proj-modal-status">
-              <option value="Perencanaan">Perencanaan</option>
-              <option value="Sedang Berjalan">Sedang Berjalan</option>
-              <option value="Tahap Uji">Tahap Uji</option>
-              <option value="Selesai">Selesai</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('project-modal')">Batal</button>
-        <button type="submit" class="btn btn-primary">Simpan Proyek</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- MODAL: IMAGE PREVIEW & LIGHTBOX (Task 4) -->
-<div id="image-preview-modal" class="image-preview-overlay" role="dialog" aria-modal="true" style="display: none;" onclick="window.app.handlePreviewBackdropClick(event)">
-  <div class="image-preview-container" onclick="event.stopPropagation()">
-    <!-- Header Bar -->
-    <div class="image-preview-header">
-      <div class="image-preview-title-box">
-        <span id="preview-filename" class="image-preview-filename">image.jpg</span>
-        <span id="preview-counter" class="image-preview-counter">1 / 1</span>
-        <span id="preview-filesize" class="mono-label" style="font-size: 0.72rem; color: #94A3B8;"></span>
-      </div>
-      <div class="image-preview-controls">
-        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomOut()" title="Perkecil (Zoom Out)">−</button>
-        <button type="button" class="btn btn-ghost btn-sm preview-btn" onclick="window.app.previewResetZoom()" id="preview-zoom-label" title="Reset Zoom">100%</button>
-        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.previewZoomIn()" title="Perbesar (Zoom In)">+</button>
-        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.downloadActivePreviewImage()" title="Unduh Gambar Asli">💾</button>
-        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn" onclick="window.app.deleteActivePreviewImage()" title="Hapus Gambar Ini" style="color: #EF4444;">🗑️</button>
-        <button type="button" class="btn btn-ghost btn-icon-sm preview-btn preview-close-btn" onclick="window.app.closeImagePreviewModal()" title="Tutup (Esc)">✕</button>
-      </div>
-    </div>
-
-    <!-- Main Viewport -->
-    <div class="image-preview-stage" id="image-preview-stage"
-         onmousedown="window.app.handlePreviewStageMouseDown(event)"
-         onmousemove="window.app.handlePreviewStageMouseMove(event)"
-         onmouseup="window.app.handlePreviewStageMouseUp(event)"
-         ontouchstart="window.app.handlePreviewTouchStart(event)"
-         ontouchmove="window.app.handlePreviewTouchMove(event)"
-         ontouchend="window.app.handlePreviewTouchEnd(event)">
-      <button type="button" class="preview-nav-btn prev-btn" id="preview-prev-btn" onclick="window.app.previewPrevImage()" title="Gambar Sebelumnya (Panah Kiri)">◀</button>
-      
-      <div class="image-preview-wrapper" id="image-preview-wrapper">
-        <div id="preview-loading-spinner" class="preview-spinner" style="display: none;"></div>
-        <img id="preview-full-img" class="image-preview-img" src="" alt="Preview Lampiran Tugas">
-      </div>
-
-      <button type="button" class="preview-nav-btn next-btn" id="preview-next-btn" onclick="window.app.previewNextImage()" title="Gambar Selanjutnya (Panah Kanan)">▶</button>
-    </div>
-
-    <!-- Caption / Footer Bar -->
-    <div class="image-preview-footer">
-      <div id="preview-caption-display" class="preview-caption-text"></div>
-      <div style="font-size: 0.72rem; color: #94A3B8; font-family: var(--font-mono);">
-        Navigasi: ◀ ▶ Panah Keyboard · Zoom: Drag / Tombol · Tutup: Esc
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('reset-demo-modal')">
+          Batal
+        </button>
+        <button type="button" id="btn-execute-reset-demo" class="btn btn-primary"
+          onclick="window.app.executeResetDemoData()">
+          Ya, Atur Ulang ke Data Demo
+        </button>
       </div>
     </div>
   </div>
-</div>
 
-<!-- Core Scripts -->
-<script src="js/button.js"></script>
-<script src="js/store.js"></script>
-<script src="js/telegram.js"></script>
-<script src="js/list-view.js"></script>
-<script src="js/kanban-view.js"></script>
-<script src="js/calendar-view.js"></script>
-<script src="js/app.js"></script>
+  <!-- Core Scripts -->
+  <script src="js/button.js?v=1.2"></script>
+  <script src="js/store.js?v=1.2"></script>
+  <script src="js/telegram.js?v=1.2"></script>
+  <script src="js/list-view.js?v=1.2"></script>
+  <script src="js/kanban-view.js?v=1.2"></script>
+  <script src="js/calendar-view.js?v=1.2"></script>
+  <script src="js/app.js?v=1.2"></script>
 
 </body>
+
 </html>

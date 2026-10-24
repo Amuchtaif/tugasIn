@@ -26,7 +26,7 @@ function Button(props = {}) {
   const classes = ['btn'];
 
   // Variant
-  if (['primary', 'secondary', 'ghost', 'danger', 'outline'].includes(variant)) {
+  if (['primary', 'secondary', 'ghost', 'danger', 'danger-solid', 'outline'].includes(variant)) {
     classes.push(`btn-${variant}`);
   } else {
     classes.push('btn-secondary');

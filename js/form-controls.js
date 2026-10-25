@@ -290,7 +290,10 @@
       });
 
       // Detect current selected item
-      const sel = this.items.find(i => i.selected) || this.items[0] || null;
+      const currentVal = this.targetEl ? this.targetEl.value : '';
+      const sel = (currentVal !== undefined && currentVal !== '')
+        ? this.items.find(i => String(i.value) === String(currentVal))
+        : (this.items.find(i => i.selected) || this.items[0] || null);
       this.selectedItem = sel;
 
       // Auto-enable search for long lists (e.g. > 7 items) if not explicitly set to false
@@ -353,8 +356,9 @@
     }
 
     renderTriggerValue() {
-      if (!this.selectedItem || (this.selectedItem.value === '' && !this.selectedItem.label)) {
-        this.valueContainer.innerHTML = `<span class="custom-select-placeholder">${escapeHtml(this.options.placeholder)}</span>`;
+      if (!this.selectedItem || !this.selectedItem.value) {
+        const placeholderText = (this.selectedItem && this.selectedItem.label) || this.options.placeholder || 'Pilih opsi...';
+        this.valueContainer.innerHTML = `<span class="custom-select-placeholder">${escapeHtml(placeholderText)}</span>`;
         if (this.clearBtn) this.clearBtn.style.display = 'none';
         return;
       }
@@ -362,8 +366,13 @@
       let html = '';
       if (this.selectedItem.dotColor) {
         html += `<span class="option-dot" style="background-color: ${this.selectedItem.dotColor};"></span> `;
-      } else if (this.selectedItem.icon) {
-        html += `<span style="font-size: 0.85em; opacity: 0.8;">${this.selectedItem.icon}</span> `;
+      }
+      if (this.selectedItem.icon) {
+        if (this.selectedItem.icon.includes('fa-')) {
+          html += `<i class="${this.selectedItem.icon}" style="font-size: 0.9em; opacity: 0.85; margin-right: 6px;"></i> `;
+        } else {
+          html += `<span style="font-size: 0.85em; opacity: 0.8; margin-right: 6px;">${this.selectedItem.icon}</span> `;
+        }
       }
 
       if (this.selectedItem.badge) {
@@ -413,7 +422,10 @@
     renderOptionsList(filteredItems = this.items) {
       this.listEl.innerHTML = '';
 
-      if (!filteredItems || filteredItems.length === 0) {
+      // Skip disabled empty placeholder options from appearing in selectable options list
+      const itemsToRender = (filteredItems || []).filter(item => !(item.disabled && item.value === ''));
+
+      if (!itemsToRender || itemsToRender.length === 0) {
         const empty = document.createElement('li');
         empty.className = 'custom-select-empty';
         empty.innerHTML = '<i class="fa-regular fa-folder-open"></i><span>Tidak ada hasil ditemukan</span>';
@@ -421,7 +433,7 @@
         return;
       }
 
-      filteredItems.forEach((item, idx) => {
+      itemsToRender.forEach((item, idx) => {
         const isSelected = this.selectedItem && String(this.selectedItem.value) === String(item.value);
         const isHighlighted = idx === this.highlightedIndex;
 
@@ -430,13 +442,16 @@
         li.setAttribute('role', 'option');
         li.setAttribute('id', `${this.id}-opt-${idx}`);
         li.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-        li.style.setProperty('--opt-idx', Math.min(idx, 8)); // cap stagger at 8 items
-
         let leftHtml = '';
         if (item.dotColor) {
           leftHtml += `<span class="option-dot" style="background-color: ${item.dotColor};"></span>`;
-        } else if (item.icon) {
-          leftHtml += `<span style="font-size: 0.85em; opacity: 0.85;">${item.icon}</span>`;
+        }
+        if (item.icon) {
+          if (item.icon.includes('fa-')) {
+            leftHtml += `<i class="${item.icon}" style="font-size: 0.9em; opacity: 0.85; margin-right: 6px;"></i>`;
+          } else {
+            leftHtml += `<span style="font-size: 0.85em; opacity: 0.85; margin-right: 6px;">${item.icon}</span>`;
+          }
         }
 
         if (item.badge) {

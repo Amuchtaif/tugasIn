@@ -12,9 +12,15 @@ class TelegramService {
 
   initWatcher() {
     // Check every 30 seconds
-    setInterval(() => this.checkDeadlines(), 30000);
+    setInterval(() => {
+      this.checkDeadlines();
+      this.checkSchedules();
+    }, 30000);
     // Initial check after short delay
-    setTimeout(() => this.checkDeadlines(), 3000);
+    setTimeout(() => {
+      this.checkDeadlines();
+      this.checkSchedules();
+    }, 3000);
   }
 
   async sendTelegramMessage(text) {
@@ -131,6 +137,124 @@ class TelegramService {
         }
       }
     }
+  }
+
+  checkSchedules() {
+    if (!this.store || !this.store.getTodaySchedules) return;
+    const schedules = this.store.getTodaySchedules();
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    for (const sch of schedules) {
+      if (sch.pengingat_aktif === false) continue;
+      if (!sch.jam_mulai) continue;
+
+      const timeParts = sch.jam_mulai.split(':');
+      const startHour = parseInt(timeParts[0], 10);
+      const startMin = parseInt(timeParts[1] || '0', 10);
+      if (isNaN(startHour) || isNaN(startMin)) continue;
+
+      const scheduleTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour, startMin, 0);
+      const diffMs = scheduleTime.getTime() - now.getTime();
+      const diffMins = Math.round(diffMs / (60 * 1000));
+
+      // 1. Reminder 1 Jam Sebelum (antara 31 s/d 60 menit)
+      if (diffMins > 30 && diffMins <= 60) {
+        const alertKey = `sched_60m_${sch.id}_${todayStr}`;
+        if (!this.sentAlerts.has(alertKey)) {
+          this.sentAlerts.add(alertKey);
+          this.triggerScheduleAlert(sch, '60m', diffMins);
+        }
+      }
+
+      // 2. Reminder 30 Menit Sebelum (antara 0 s/d 30 menit)
+      else if (diffMins >= 0 && diffMins <= 30) {
+        const alertKey = `sched_30m_${sch.id}_${todayStr}`;
+        if (!this.sentAlerts.has(alertKey)) {
+          this.sentAlerts.add(alertKey);
+          this.triggerScheduleAlert(sch, '30m', diffMins);
+        }
+      }
+    }
+  }
+
+  triggerScheduleAlert(schedule, type, diffMins) {
+    const course = this.store.getCourse(schedule.course_id);
+    const courseCode = course ? course.kode : (schedule.course_kode || 'MK');
+    const courseName = course ? course.nama : (schedule.course_nama || 'Mata Kuliah');
+    const dosen = schedule.dosen || (course ? course.dosen : '-');
+    const ruangan = schedule.ruangan || 'Ruang Kelas / Daring';
+    const jenis = schedule.jenis || 'Kuliah';
+    const startTime = (schedule.jam_mulai || '').slice(0, 5);
+    const endTime = (schedule.jam_selesai || '').slice(0, 5);
+    const settings = this.store.getSettings();
+
+    const typeTitle = type === '30m' ? '⏰ 30 Menit Menuju Kuliah' : '🔔 1 Jam Menuju Kuliah';
+    const tgHeader = type === '30m' ? '⏰ PENGINGAT JADWAL KULIAH (30 MENIT LAGI)' : '🔔 PENGINGAT JADWAL KULIAH (1 JAM LAGI)';
+    const subtitle = `Perkuliahan akan dimulai dalam ${diffMins} menit (${startTime} WIB) di ${ruangan}.`;
+
+    // 1. In-App Toast
+    this.showScheduleToast(schedule, courseCode, courseName, typeTitle, subtitle, startTime);
+
+    // 2. Subtle audio chime
+    this.playChime();
+
+    // 3. Telegram Bot Notification
+    if (settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id) {
+      let tgMsg =
+        `<b>${tgHeader}</b>\n\n` +
+        `📌 <b>Mata Kuliah:</b> ${courseCode} - ${courseName}\n` +
+        `🗓️ <b>Waktu:</b> ${schedule.hari}, ${startTime} - ${endTime} WIB\n` +
+        `📍 <b>Ruangan:</b> ${ruangan}\n` +
+        `👨‍🏫 <b>Dosen:</b> ${dosen}\n` +
+        `🏷️ <b>Jenis:</b> ${jenis}\n`;
+
+      if (schedule.keterangan) {
+        tgMsg += `📝 <b>Catatan:</b> ${schedule.keterangan}\n`;
+      }
+
+      tgMsg += `\n⏳ <i>Perkuliahan dimulai ${diffMins} menit lagi. Persiapkan modul dan catatan Anda!</i>\n\n` +
+        `Buka TugasIn: http://localhost/tugasIn/`;
+
+      this.sendTelegramMessage(tgMsg).catch(console.error);
+    }
+  }
+
+  showScheduleToast(schedule, courseCode, courseName, typeTitle, subtitle, startTime) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-reminder';
+    toast.id = `toast_sched_${schedule.id}`;
+
+    toast.innerHTML = `
+      <div style="flex: 1;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <span class="mono-label" style="color: var(--color-tertiary); font-weight: 600;">${typeTitle.toUpperCase()}</span>
+          <span class="mono-label" style="background: rgba(44, 94, 245, 0.1); color: var(--color-tertiary); padding: 2px 6px; border-radius: 4px;">${startTime} WIB</span>
+        </div>
+        <div style="font-weight: 600; font-size: 0.92rem; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+          <i class="fa-solid fa-calendar-check" style="color: var(--color-tertiary);"></i>
+          <span>${this.escapeHtml(courseCode)} · ${this.escapeHtml(courseName)}</span>
+        </div>
+        <div style="font-size: 0.82rem; color: var(--color-secondary); margin-bottom: 8px;">${this.escapeHtml(subtitle)}</div>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-sm btn-primary" onclick="window.app.navigateTo('schedule'); this.closest('.toast').remove();">
+            <i class="fa-solid fa-calendar-days"></i> Buka Jadwal
+          </button>
+          <button class="btn btn-sm btn-ghost" onclick="this.closest('.toast').remove()">
+            Tutup
+          </button>
+        </div>
+      </div>
+    `;
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 25000);
   }
 
   triggerAlert(task, type, subtitle) {

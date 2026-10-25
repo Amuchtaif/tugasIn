@@ -103,6 +103,10 @@ try {
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            if (defined('CURL_IPRESOLVE_V4')) {
+                curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+            }
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_POST, true);
@@ -120,12 +124,144 @@ try {
         }
     }
 
+    // 3. Fetch Active Schedules for Today (Jadwal Kuliah Mingguan)
+    $daysMap = [0 => 'Minggu', 1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu'];
+    $currentDayName = $daysMap[(int)date('w')];
+    $todayDateStr = date('Y-m-d');
+
+    // Ensure table schedule_reminder_logs exists
+    try {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `schedule_reminder_logs` (
+              `id` INT AUTO_INCREMENT PRIMARY KEY,
+              `schedule_id` VARCHAR(64) NOT NULL,
+              `reminder_type` VARCHAR(20) NOT NULL,
+              `tanggal` DATE NOT NULL,
+              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY `idx_sched_rem_unique` (`schedule_id`, `reminder_type`, `tanggal`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    } catch (Exception $e) {}
+
+    $schedStmt = $db->prepare("
+        SELECT s.*, c.nama AS course_nama, c.kode AS course_kode, c.dosen AS course_dosen, c.ikon AS course_ikon
+        FROM schedules s
+        JOIN courses c ON s.course_id = c.id
+        WHERE s.hari = :hari AND (s.pengingat_aktif = 1 OR s.pengingat_aktif IS NULL)
+        ORDER BY s.jam_mulai ASC
+    ");
+    $schedStmt->execute([':hari' => $currentDayName]);
+    $todaySchedules = $schedStmt->fetchAll();
+
+    $scheduleAlertsSent = 0;
+    $scheduleDetails = [];
+
+    foreach ($todaySchedules as $sched) {
+        $startTimeStr = $todayDateStr . ' ' . $sched['jam_mulai'];
+        $startTime = strtotime($startTimeStr);
+        if (!$startTime) continue;
+
+        $diffSec = $startTime - $now;
+        $diffMins = round($diffSec / 60);
+
+        // Reminder slots:
+        // Slot 1: 1 Jam sebelum jadwal (31 - 60 menit)
+        // Slot 2: 30 Menit sebelum jadwal (0 - 30 menit)
+        $reminderType = null;
+        $reminderTitle = '';
+        $subtitle = '';
+
+        if ($diffMins > 30 && $diffMins <= 60) {
+            $reminderType = '60m';
+            $reminderTitle = '🔔 PENGINGAT JADWAL KULIAH (1 JAM LAGI)';
+            $subtitle = "Perkuliahan akan dimulai dalam {$diffMins} menit ({$sched['jam_mulai']}). Segera persiapkan materi dan perlengkapan Anda!";
+        } elseif ($diffMins >= 0 && $diffMins <= 30) {
+            $reminderType = '30m';
+            $reminderTitle = '⏰ PENGINGAT JADWAL KULIAH (30 MENIT LAGI)';
+            $subtitle = "Perkuliahan akan dimulai dalam {$diffMins} menit ({$sched['jam_mulai']}). Segera bersiap menuju ruangan atau login kelas!";
+        }
+
+        if ($reminderType !== null) {
+            // Check if already sent today
+            $checkStmt = $db->prepare("SELECT COUNT(*) FROM schedule_reminder_logs WHERE schedule_id = :sid AND reminder_type = :rtype AND tanggal = :tgl");
+            $checkStmt->execute([
+                ':sid' => $sched['id'],
+                ':rtype' => $reminderType,
+                ':tgl' => $todayDateStr
+            ]);
+            $alreadySent = (int)$checkStmt->fetchColumn() > 0;
+
+            if (!$alreadySent) {
+                $startTimeFormatted = substr($sched['jam_mulai'], 0, 5);
+                $endTimeFormatted = substr($sched['jam_selesai'], 0, 5);
+                $dosen = !empty($sched['dosen']) ? $sched['dosen'] : (!empty($sched['course_dosen']) ? $sched['course_dosen'] : '-');
+                $ruangan = !empty($sched['ruangan']) ? $sched['ruangan'] : 'Ruang Kelas / Daring';
+                $jenis = !empty($sched['jenis']) ? $sched['jenis'] : 'Kuliah';
+
+                $msg = "<b>{$reminderTitle}</b>\n\n"
+                     . "📌 <b>Mata Kuliah:</b> " . htmlspecialchars("{$sched['course_kode']} - {$sched['course_nama']}", ENT_QUOTES, 'UTF-8') . "\n"
+                     . "🗓️ <b>Waktu:</b> {$sched['hari']}, {$startTimeFormatted} - {$endTimeFormatted} WIB\n"
+                     . "📍 <b>Ruangan:</b> " . htmlspecialchars($ruangan, ENT_QUOTES, 'UTF-8') . "\n"
+                     . "👨‍🏫 <b>Dosen:</b> " . htmlspecialchars($dosen, ENT_QUOTES, 'UTF-8') . "\n"
+                     . "🏷️ <b>Jenis:</b> " . htmlspecialchars($jenis, ENT_QUOTES, 'UTF-8') . "\n";
+
+                if (!empty($sched['keterangan'])) {
+                    $msg .= "📝 <b>Catatan:</b> " . htmlspecialchars($sched['keterangan'], ENT_QUOTES, 'UTF-8') . "\n";
+                }
+
+                $msg .= "\nℹ️ <i>{$subtitle}</i>\n\n"
+                     . "Buka TugasIn: http://localhost/tugasIn/";
+
+                $url = "https://api.telegram.org/bot{$token}/sendMessage";
+                $payload = [
+                    'chat_id' => $chatId,
+                    'text' => $msg,
+                    'parse_mode' => 'HTML'
+                ];
+
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                if (defined('CURL_IPRESOLVE_V4')) {
+                    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+                }
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_POST, true);
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+                $res = curl_exec($ch);
+                curl_close($ch);
+
+                // Record in log to avoid duplicate spamming
+                $logStmt = $db->prepare("INSERT IGNORE INTO schedule_reminder_logs (schedule_id, reminder_type, tanggal) VALUES (:sid, :rtype, :tgl)");
+                $logStmt->execute([
+                    ':sid' => $sched['id'],
+                    ':rtype' => $reminderType,
+                    ':tgl' => $todayDateStr
+                ]);
+
+                $scheduleAlertsSent++;
+                $scheduleDetails[] = [
+                    'schedule_id' => $sched['id'],
+                    'course' => $sched['course_nama'],
+                    'type' => $reminderType,
+                    'diff_minutes' => $diffMins
+                ];
+            }
+        }
+    }
+
     echo json_encode([
         'ok' => true,
         'timestamp' => date('Y-m-d H:i:s'),
-        'total_checked' => count($tasks),
-        'alerts_sent' => $alertsSent,
-        'details' => $details
+        'total_tasks_checked' => count($tasks),
+        'task_alerts_sent' => $alertsSent,
+        'task_details' => $details,
+        'today_schedules_checked' => count($todaySchedules),
+        'schedule_alerts_sent' => $scheduleAlertsSent,
+        'schedule_details' => $scheduleDetails
     ]);
 
 } catch (Exception $e) {

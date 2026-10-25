@@ -55,21 +55,29 @@ class CalendarView {
     let html = `
       <div class="calendar-view-container">
         <div class="calendar-header">
-          <div style="display: flex; align-items: center; gap: 12px;">
+          <div class="calendar-header-left">
             <div class="calendar-month-title">${title}</div>
-            <div class="calendar-nav-controls" style="display: flex; align-items: center; gap: 4px;">
+            <div class="calendar-nav-controls">
               <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.prev()" title="Bulan Sebelumnya"><i class="fa-solid fa-chevron-left"></i></button>
               <button class="btn btn-secondary btn-sm" onclick="window.calendarView.today()"><i class="fa-regular fa-calendar"></i> Hari Ini</button>
               <button class="btn btn-secondary btn-icon-sm" onclick="window.calendarView.next()" title="Bulan Selanjutnya"><i class="fa-solid fa-chevron-right"></i></button>
             </div>
           </div>
-          <div class="view-tabs">
-            <button class="tab-btn ${this.viewMode === 'month' ? 'active' : ''}" onclick="window.calendarView.setViewMode('month')">Bulan</button>
-            <button class="tab-btn ${this.viewMode === 'week' ? 'active' : ''}" onclick="window.calendarView.setViewMode('week')">Minggu</button>
+          <div class="calendar-header-right">
+            <div class="view-tabs">
+              <button class="tab-btn ${this.viewMode === 'month' ? 'active' : ''}" onclick="window.calendarView.setViewMode('month')">Bulan</button>
+              <button class="tab-btn ${this.viewMode === 'week' ? 'active' : ''}" onclick="window.calendarView.setViewMode('week')">Minggu</button>
+            </div>
           </div>
         </div>
 
-        <div class="calendar-grid">
+        <div class="calendar-mobile-scroll-hint">
+          <i class="fa-solid fa-arrows-left-right"></i>
+          <span>Geser ke samping & bawah untuk melihat seluruh kalender</span>
+        </div>
+
+        <div class="calendar-scroll-wrapper" id="calendar-scroll-wrapper">
+          <div class="calendar-grid">
     `;
 
     // Weekday headers
@@ -85,6 +93,7 @@ class CalendarView {
     }
 
     html += `
+          </div>
         </div>
       </div>
     `;

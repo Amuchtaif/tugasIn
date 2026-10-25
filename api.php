@@ -12,6 +12,8 @@ if (!ob_get_level()) {
 }
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
@@ -36,13 +38,23 @@ function getJsonInput() {
 // Helper to communicate with Telegram Bot API
 function callTelegramApi($token, $method, $params = []) {
     $url = "https://api.telegram.org/bot{$token}/{$method}";
+    $response = false;
+    $err = '';
 
     if (function_exists('curl_init')) {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 12);
+        if (defined('CURL_IPRESOLVE_V4')) {
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (compatible; TugasInBot/2.2)');
+
         if (!empty($params)) {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
@@ -51,19 +63,16 @@ function callTelegramApi($token, $method, $params = []) {
         $response = curl_exec($ch);
         $err = curl_error($ch);
         curl_close($ch);
+    }
 
-        if ($response === false) {
-            return ['ok' => false, 'error' => $err ?: 'Gagal menghubungi server Telegram via cURL.'];
-        }
-        $data = json_decode($response, true);
-        return $data ?: ['ok' => false, 'error' => 'Respon Telegram tidak dapat dibaca.', 'raw' => $response];
-    } else {
+    // Fallback using stream context if cURL returned false or timed out
+    if ($response === false) {
         $options = [
             'http' => [
                 'method' => !empty($params) ? 'POST' : 'GET',
-                'header' => "Content-Type: application/json\r\n",
+                'header' => "Content-Type: application/json\r\nUser-Agent: Mozilla/5.0 (compatible; TugasInBot/2.2)\r\n",
                 'content' => !empty($params) ? json_encode($params) : '',
-                'timeout' => 12,
+                'timeout' => 8,
                 'ignore_errors' => true
             ],
             'ssl' => [
@@ -73,12 +82,17 @@ function callTelegramApi($token, $method, $params = []) {
         ];
         $context = stream_context_create($options);
         $response = @file_get_contents($url, false, $context);
-        if ($response === false) {
-            return ['ok' => false, 'error' => 'Gagal menghubungi server Telegram via file_get_contents.'];
-        }
-        $data = json_decode($response, true);
-        return $data ?: ['ok' => false, 'error' => 'Respon Telegram tidak dapat dibaca.'];
     }
+
+    if ($response === false) {
+        return [
+            'ok' => false,
+            'error' => $err ?: 'Server hosting gagal terhubung ke api.telegram.org (Koneksi keluar mungkin diblokir oleh firewall hosting Anda).'
+        ];
+    }
+
+    $data = json_decode($response, true);
+    return $data ?: ['ok' => false, 'error' => 'Respon Telegram tidak dapat dibaca.', 'raw' => $response];
 }
 
 // Helper to remove physical attachment and thumbnail files from disk
@@ -90,6 +104,59 @@ function deletePhysicalAttachmentFiles($storagePath, $id) {
     $thumbPath = $baseUploadDir . 'thumbnails/' . $id . '_thumb.webp';
     if (file_exists($thumbPath)) {
         @unlink($thumbPath);
+    }
+}
+
+function ensureScheduleTablesExist($db) {
+    static $ensured = false;
+    if ($ensured) return;
+    try {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `schedules` (
+              `id` VARCHAR(64) NOT NULL,
+              `course_id` VARCHAR(64) NOT NULL,
+              `hari` VARCHAR(20) NOT NULL,
+              `jam_mulai` TIME NOT NULL,
+              `jam_selesai` TIME NOT NULL,
+              `ruangan` VARCHAR(100) DEFAULT '',
+              `dosen` VARCHAR(255) DEFAULT '',
+              `jenis` VARCHAR(64) DEFAULT 'Kuliah',
+              `warna` VARCHAR(32) DEFAULT NULL,
+              `keterangan` TEXT NULL,
+              `pengingat_aktif` TINYINT(1) NOT NULL DEFAULT 1,
+              `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (`id`),
+              KEY `idx_schedules_course` (`course_id`),
+              KEY `idx_schedules_hari` (`hari`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+            CREATE TABLE IF NOT EXISTS `schedule_reminder_logs` (
+              `id` INT AUTO_INCREMENT PRIMARY KEY,
+              `schedule_id` VARCHAR(64) NOT NULL,
+              `reminder_type` VARCHAR(20) NOT NULL,
+              `tanggal` DATE NOT NULL,
+              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY `idx_sched_rem_unique` (`schedule_id`, `reminder_type`, `tanggal`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+
+        // Seed initial schedules if empty
+        $count = $db->query("SELECT count(*) FROM `schedules`")->fetchColumn();
+        if ((int)$count === 0) {
+            $db->exec("
+                INSERT IGNORE INTO `schedules` (`id`, `course_id`, `hari`, `jam_mulai`, `jam_selesai`, `ruangan`, `dosen`, `jenis`, `warna`, `keterangan`, `pengingat_aktif`) VALUES
+                ('sch_1', 'crs_web', 'Senin', '08:00:00', '10:30:00', 'Lab Komputer 3', 'Dr. Ir. Budi Santoso', 'Praktikum', '#0284C7', 'Modul 5: REST API & Autentikasi', 1),
+                ('sch_2', 'crs_db', 'Selasa', '10:00:00', '12:30:00', 'Gedung D Ruang 301', 'Siti Rahma, M.Kom', 'Kuliah', '#D97706', 'Materi Normalisasi BCNF & Indeks', 1),
+                ('sch_3', 'crs_ai', 'Rabu', '13:00:00', '15:30:00', 'Lab AI & Robotika', 'Hendra Wijaya, Ph.D', 'Praktikum', '#2563EB', 'Hands-on PyTorch CNN', 1),
+                ('sch_4', 'crs_uiux', 'Kamis', '08:00:00', '10:00:00', 'Studio Desain 2', 'Diana Lestari, M.Ds', 'Kuliah', '#DB2777', 'Presentasi Prototype Figma', 1),
+                ('sch_5', 'crs_dist', 'Jumat', '09:00:00', '11:30:00', 'Gedung E Ruang 204', 'Agus Pratama, M.T', 'Kuliah', '#7C3AED', 'Diskusi Konsensus Raft', 1);
+            ");
+        }
+
+        $ensured = true;
+    } catch (Exception $e) {
+        // Proceed silently
     }
 }
 
@@ -248,12 +315,36 @@ try {
             }
         }
 
+        ensureScheduleTablesExist($db);
+
+        // Schedules (Jadwal Kuliah Mingguan)
+        $schedules = [];
+        try {
+            $schedulesStmt = $db->query("
+                SELECT s.id, s.course_id, s.hari, s.jam_mulai, s.jam_selesai, s.ruangan, s.dosen, s.jenis, s.warna, s.keterangan,
+                       (s.pengingat_aktif = 1) AS pengingat_aktif,
+                       c.nama AS course_nama, c.kode AS course_kode, c.dosen AS course_dosen, c.ikon AS course_ikon, c.warna AS course_warna, c.sks, c.semester_id
+                FROM schedules s
+                LEFT JOIN courses c ON s.course_id = c.id
+                ORDER BY FIELD(s.hari, 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'), s.jam_mulai ASC
+            ");
+            $schedules = array_map(function($sch) {
+                $sch['pengingat_aktif'] = (bool)$sch['pengingat_aktif'];
+                $sch['jam_mulai_formatted'] = !empty($sch['jam_mulai']) ? substr($sch['jam_mulai'], 0, 5) : '';
+                $sch['jam_selesai_formatted'] = !empty($sch['jam_selesai']) ? substr($sch['jam_selesai'], 0, 5) : '';
+                return $sch;
+            }, $schedulesStmt->fetchAll());
+        } catch (Exception $e) {
+            $schedules = [];
+        }
+
         echo json_encode([
             'ok' => true,
             'source' => 'mysql',
             'data' => [
                 'semesters' => $semesters,
                 'courses' => $courses,
+                'schedules' => $schedules,
                 'statuses' => $statuses,
                 'projects' => $projects,
                 'tasks' => $tasks,
@@ -492,6 +583,9 @@ try {
         $id = $input['id'] ?? ($_GET['id'] ?? '');
         $stmt = $db->prepare("DELETE FROM courses WHERE id = :id");
         $stmt->execute([':id' => $id]);
+        // Cascade delete related schedules
+        $stmtSch = $db->prepare("DELETE FROM schedules WHERE course_id = :id");
+        $stmtSch->execute([':id' => $id]);
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -582,6 +676,125 @@ try {
     }
 
     // ---------------------------------------------------------
+    // 7.5 SCHEDULE MUTATIONS (Jadwal Kuliah Mingguan)
+    // ---------------------------------------------------------
+    if ($action === 'save_schedule') {
+        ensureScheduleTablesExist($db);
+        $sch = getJsonInput();
+        if (empty($sch['id']) || empty($sch['course_id']) || empty($sch['hari']) || empty($sch['jam_mulai'])) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Data jadwal kuliah tidak lengkap.']);
+            exit;
+        }
+
+        $stmt = $db->prepare("
+            INSERT INTO schedules (id, course_id, hari, jam_mulai, jam_selesai, ruangan, dosen, jenis, warna, keterangan, pengingat_aktif)
+            VALUES (:id, :course_id, :hari, :jam_mulai, :jam_selesai, :ruangan, :dosen, :jenis, :warna, :keterangan, :pengingat_aktif)
+            ON DUPLICATE KEY UPDATE
+                course_id = VALUES(course_id),
+                hari = VALUES(hari),
+                jam_mulai = VALUES(jam_mulai),
+                jam_selesai = VALUES(jam_selesai),
+                ruangan = VALUES(ruangan),
+                dosen = VALUES(dosen),
+                jenis = VALUES(jenis),
+                warna = VALUES(warna),
+                keterangan = VALUES(keterangan),
+                pengingat_aktif = VALUES(pengingat_aktif)
+        ");
+
+        $stmt->execute([
+            ':id' => $sch['id'],
+            ':course_id' => $sch['course_id'],
+            ':hari' => $sch['hari'],
+            ':jam_mulai' => $sch['jam_mulai'],
+            ':jam_selesai' => !empty($sch['jam_selesai']) ? $sch['jam_selesai'] : $sch['jam_mulai'],
+            ':ruangan' => $sch['ruangan'] ?? '',
+            ':dosen' => $sch['dosen'] ?? '',
+            ':jenis' => $sch['jenis'] ?? 'Kuliah',
+            ':warna' => !empty($sch['warna']) ? $sch['warna'] : null,
+            ':keterangan' => $sch['keterangan'] ?? '',
+            ':pengingat_aktif' => isset($sch['pengingat_aktif']) ? ($sch['pengingat_aktif'] ? 1 : 0) : 1
+        ]);
+
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if ($action === 'delete_schedule') {
+        ensureScheduleTablesExist($db);
+        $input = getJsonInput();
+        $id = $input['id'] ?? ($_GET['id'] ?? '');
+        $stmt = $db->prepare("DELETE FROM schedules WHERE id = :id");
+        $stmt->execute([':id' => $id]);
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
+    if ($action === 'test_schedule_reminder') {
+        ensureScheduleTablesExist($db);
+        $input = getJsonInput();
+        $scheduleId = $input['schedule_id'] ?? ($_GET['schedule_id'] ?? '');
+        $reminderType = $input['type'] ?? '60m';
+
+        $stmt = $db->prepare("
+            SELECT s.*, c.nama AS course_nama, c.kode AS course_kode, c.dosen AS course_dosen, c.sks, c.ikon AS course_ikon
+            FROM schedules s
+            LEFT JOIN courses c ON s.course_id = c.id
+            WHERE s.id = :id
+        ");
+        $stmt->execute([':id' => $scheduleId]);
+        $sch = $stmt->fetch();
+
+        if (!$sch) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'Jadwal kuliah tidak ditemukan.']);
+            exit;
+        }
+
+        $settingsStmt = $db->query("SELECT kunci, nilai FROM settings WHERE kunci IN ('telegram_bot_token', 'telegram_chat_id', 'telegram_enabled')");
+        $settingsRaw = $settingsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        $token = $settingsRaw['telegram_bot_token'] ?? '';
+        $chatId = $settingsRaw['telegram_chat_id'] ?? '';
+
+        if (empty($token) || empty($chatId)) {
+            echo json_encode(['ok' => false, 'error' => 'Bot Token atau Chat ID Telegram belum disetel di Pengaturan TugasIn.']);
+            exit;
+        }
+
+        $typeLabel = ($reminderType === '30m') ? '⏰ 30 MENIT SEBELUM KULIAH' : '🔔 1 JAM SEBELUM KULIAH';
+        $durLabel = ($reminderType === '30m') ? '30 menit lagi' : '1 jam (60 menit) lagi';
+        $startTime = substr($sch['jam_mulai'], 0, 5);
+        $endTime = substr($sch['jam_selesai'], 0, 5);
+        $dosen = !empty($sch['dosen']) ? $sch['dosen'] : (!empty($sch['course_dosen']) ? $sch['course_dosen'] : '-');
+        $ruangan = !empty($sch['ruangan']) ? $sch['ruangan'] : 'Ruang Kelas / Daring';
+        $jenis = !empty($sch['jenis']) ? $sch['jenis'] : 'Kuliah';
+
+        $msg = "<b>{$typeLabel} - PENGINGAT JADWAL KULIAH</b>\n\n"
+             . "📌 <b>Mata Kuliah:</b> " . htmlspecialchars("{$sch['course_kode']} - {$sch['course_nama']}", ENT_QUOTES, 'UTF-8') . "\n"
+             . "🗓️ <b>Hari & Jam:</b> {$sch['hari']}, {$startTime} - {$endTime} WIB\n"
+             . "📍 <b>Ruangan:</b> " . htmlspecialchars($ruangan, ENT_QUOTES, 'UTF-8') . "\n"
+             . "👨‍🏫 <b>Dosen:</b> " . htmlspecialchars($dosen, ENT_QUOTES, 'UTF-8') . "\n"
+             . "🏷️ <b>Jenis:</b> " . htmlspecialchars($jenis, ENT_QUOTES, 'UTF-8') . "\n";
+
+        if (!empty($sch['keterangan'])) {
+            $msg .= "📝 <b>Catatan:</b> " . htmlspecialchars($sch['keterangan'], ENT_QUOTES, 'UTF-8') . "\n";
+        }
+
+        $msg .= "\n⏳ <i>Perkuliahan akan dimulai dalam {$durLabel} ({$startTime} WIB). Segera siapkan materi & kehadiran Anda!</i>\n\n"
+             . "Buka TugasIn: http://localhost/tugasIn/";
+
+        $result = callTelegramApi($token, 'sendMessage', [
+            'chat_id' => $chatId,
+            'text' => $msg,
+            'parse_mode' => 'HTML'
+        ]);
+
+        echo json_encode($result);
+        exit;
+    }
+
+    // ---------------------------------------------------------
     // 8. SETTINGS MUTATIONS
     // ---------------------------------------------------------
     if ($action === 'save_settings') {
@@ -608,6 +821,9 @@ try {
                 ]);
             }
             echo json_encode(['ok' => true]);
+            exit;
+        } else {
+            echo json_encode(['ok' => false, 'error' => 'Data pengaturan kosong atau tidak valid.']);
             exit;
         }
     }
@@ -1241,6 +1457,8 @@ try {
         $db->exec("DELETE FROM `projects`;");
         $db->exec("DELETE FROM `courses`;");
         $db->exec("DELETE FROM `semesters`;");
+        $db->exec("DELETE FROM `schedules`;");
+        $db->exec("DELETE FROM `schedule_reminder_logs`;");
         
         // Tetap sediakan 4 status dasar Kanban agar pembuatan tugas baru tetap valid
         $db->exec("DELETE FROM `statuses`;");
@@ -1292,6 +1510,8 @@ try {
             $db->exec("DELETE FROM `semesters`;");
             $db->exec("DELETE FROM `statuses`;");
             $db->exec("DELETE FROM `settings`;");
+            $db->exec("DELETE FROM `schedules`;");
+            $db->exec("DELETE FROM `schedule_reminder_logs`;");
             $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
             $sql = file_get_contents($sqlFile);
@@ -1301,6 +1521,165 @@ try {
         } else {
             http_response_code(500);
             echo json_encode(['ok' => false, 'error' => 'Berkas database.sql tidak ditemukan.']);
+            exit;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 10.2 BACKUP DATABASE KE BERKAS SQL (.sql)
+    // ---------------------------------------------------------
+    if ($action === 'backup_sql') {
+        ensureScheduleTablesExist($db);
+
+        $tables = [
+            'semesters',
+            'courses',
+            'statuses',
+            'projects',
+            'tasks',
+            'subtasks',
+            'task_attachments',
+            'schedules',
+            'schedule_reminder_logs',
+            'settings'
+        ];
+
+        $out = "-- ========================================================\n";
+        $out .= "-- TugasIn Database Backup (MySQL / MariaDB Dump)\n";
+        $out .= "-- Versi Generator: TugasIn Pure PHP PDO Engine\n";
+        $out .= "-- Waktu Pembuatan: " . date('Y-m-d H:i:s') . "\n";
+        $out .= "-- Nama Database  : " . DB_NAME . "\n";
+        $out .= "-- ========================================================\n\n";
+        $out .= "SET NAMES utf8mb4;\n";
+        $out .= "SET FOREIGN_KEY_CHECKS = 0;\n\n";
+
+        foreach ($tables as $table) {
+            $chk = $db->query("SHOW TABLES LIKE " . $db->quote($table))->fetch();
+            if (!$chk) continue;
+
+            $out .= "-- --------------------------------------------------------\n";
+            $out .= "-- Struktur & Data Tabel `{$table}`\n";
+            $out .= "-- --------------------------------------------------------\n";
+            $out .= "DROP TABLE IF EXISTS `{$table}`;\n";
+
+            $createRow = $db->query("SHOW CREATE TABLE `{$table}`")->fetch(PDO::FETCH_NUM);
+            if ($createRow && isset($createRow[1])) {
+                $out .= $createRow[1] . ";\n\n";
+            }
+
+            $rows = $db->query("SELECT * FROM `{$table}`")->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($rows)) {
+                $cols = array_keys($rows[0]);
+                $colList = implode('`, `', $cols);
+
+                $chunkSize = 50;
+                $chunks = array_chunk($rows, $chunkSize);
+                foreach ($chunks as $chunk) {
+                    $valueRows = [];
+                    foreach ($chunk as $row) {
+                        $vals = [];
+                        foreach ($cols as $col) {
+                            $val = $row[$col];
+                            if ($val === null) {
+                                $vals[] = "NULL";
+                            } else {
+                                $vals[] = $db->quote((string)$val);
+                            }
+                        }
+                        $valueRows[] = "(" . implode(', ', $vals) . ")";
+                    }
+                    $out .= "INSERT INTO `{$table}` (`{$colList}`) VALUES\n" . implode(",\n", $valueRows) . ";\n\n";
+                }
+            } else {
+                $out .= "-- Tabel `{$table}` kosong.\n\n";
+            }
+        }
+
+        $out .= "SET FOREIGN_KEY_CHECKS = 1;\n";
+        $out .= "-- Selesai menghasilkan berkas backup TugasIn.\n";
+
+        while (ob_get_level()) {
+            @ob_end_clean();
+        }
+
+        $filename = 'tugasin_backup_' . date('Y-m-d_His') . '.sql';
+        header('Content-Type: application/sql; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($out));
+        header('Cache-Control: no-cache, no-store, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        echo $out;
+        exit;
+    }
+
+    // ---------------------------------------------------------
+    // 10.3 RESTORE DATABASE DARI BERKAS SQL (.sql)
+    // ---------------------------------------------------------
+    if ($action === 'restore_sql') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['ok' => false, 'error' => 'Metode HTTP tidak diizinkan. Gunakan POST.']);
+            exit;
+        }
+
+        if (!isset($_FILES['sql_file']) || $_FILES['sql_file']['error'] !== UPLOAD_ERR_OK) {
+            $errMap = [
+                UPLOAD_ERR_INI_SIZE => 'Ukuran berkas melebihi batas upload_max_filesize di php.ini.',
+                UPLOAD_ERR_FORM_SIZE => 'Ukuran berkas melebihi batas MAX_FILE_SIZE formulir.',
+                UPLOAD_ERR_PARTIAL => 'Berkas hanya terunggah sebagian.',
+                UPLOAD_ERR_NO_FILE => 'Tidak ada berkas yang dipilih untuk diunggah.',
+                UPLOAD_ERR_NO_TMP_DIR => 'Folder temporary server tidak ditemukan.',
+                UPLOAD_ERR_CANT_WRITE => 'Gagal menulis berkas ke penyimpanan server.',
+                UPLOAD_ERR_EXTENSION => 'Upload dihentikan oleh ekstensi PHP.'
+            ];
+            $errCode = $_FILES['sql_file']['error'] ?? UPLOAD_ERR_NO_FILE;
+            $msg = $errMap[$errCode] ?? 'Gagal mengunggah berkas SQL.';
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $msg]);
+            exit;
+        }
+
+        $uploadedFile = $_FILES['sql_file']['tmp_name'];
+        $fileName = $_FILES['sql_file']['name'];
+        $fileSize = $_FILES['sql_file']['size'];
+
+        // Validasi ekstensi
+        $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        if ($ext !== 'sql') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Format berkas tidak valid. Hanya berkas .sql yang diizinkan.']);
+            exit;
+        }
+
+        $sqlContent = file_get_contents($uploadedFile);
+        if ($sqlContent === false || strlen(trim($sqlContent)) < 10) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Berkas SQL kosong atau tidak dapat dibaca.']);
+            exit;
+        }
+
+        try {
+            $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
+            $db->exec($sqlContent);
+            $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
+
+            ensureScheduleTablesExist($db);
+
+            $formattedSize = number_format($fileSize / 1024, 1) . ' KB';
+            echo json_encode([
+                'ok' => true,
+                'message' => "Database TugasIn berhasil dipulihkan dari berkas '{$fileName}' ({$formattedSize})."
+            ]);
+            exit;
+        } catch (PDOException $e) {
+            $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
+            http_response_code(500);
+            echo json_encode([
+                'ok' => false,
+                'error' => 'Gagal mengeksekusi script SQL: ' . $e->getMessage()
+            ]);
             exit;
         }
     }

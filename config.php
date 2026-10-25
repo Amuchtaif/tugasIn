@@ -74,6 +74,7 @@ function getDbConnection() {
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES   => false,
+        PDO::MYSQL_ATTR_MULTI_STATEMENTS => true,
     ];
 
     // Daftar host percobaan: jika 127.0.0.1 gagal (misal hosting hanya mengizinkan socket Unix),
@@ -85,54 +86,56 @@ function getDbConnection() {
         $hostsToTry[] = '127.0.0.1';
     }
 
+    $credentialsToTry = [
+        ['user' => DB_USER, 'pass' => DB_PASS],
+        ['user' => 'amuchtaif', 'pass' => 'qurmutun']
+    ];
+
     $lastException = null;
 
     foreach ($hostsToTry as $host) {
-        try {
-            // Pada shared hosting, host 'localhost' tanpa port menghubungkan langsung lewat Unix domain socket
-            if ($host === 'localhost') {
-                $dsn = "mysql:host=localhost;dbname=" . DB_NAME . ";charset=utf8mb4";
-            } else {
-                $dsn = "mysql:host=" . $host . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-            }
+        foreach ($credentialsToTry as $cred) {
+            $currentUser = $cred['user'];
+            $currentPass = $cred['pass'];
 
-            $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-            return $pdo;
-        } catch (PDOException $e) {
-            $lastException = $e;
-
-            // Jika error adalah database belum ada (error code 1049)
-            if ($e->getCode() == 1049) {
-                // Coba auto-create database (hanya berhasil di root/localhost; pada shared hosting cPanel ditolak)
-                try {
-                    $rootDsn = ($host === 'localhost') 
-                        ? "mysql:host=localhost;charset=utf8mb4" 
-                        : "mysql:host=" . $host . ";port=" . DB_PORT . ";charset=utf8mb4";
-                    $rootPdo = new PDO($rootDsn, DB_USER, DB_PASS, $options);
-                    $rootPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
-
-                    $sqlFile = __DIR__ . '/database.sql';
-                    if (file_exists($sqlFile)) {
-                        $rootPdo->exec("USE `" . DB_NAME . "`;");
-                        $rootPdo->exec(file_get_contents($sqlFile));
-                    }
-
-                    $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-                    return $pdo;
-                } catch (Exception $inner) {
-                    sendJsonErrorResponse(
-                        "Database '" . DB_NAME . "' tidak ditemukan di server MySQL.",
-                        "Buat database bernama '" . DB_NAME . "' melalui cPanel hosting Anda, lalu import tabel dari file database.sql melalui phpMyAdmin."
-                    );
+            try {
+                if ($host === 'localhost') {
+                    $dsn = "mysql:host=localhost;dbname=" . DB_NAME . ";charset=utf8mb4";
+                } else {
+                    $dsn = "mysql:host=" . $host . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
                 }
-            }
 
-            // Jika error adalah akses ditolak / kredensial salah (error code 1045)
-            if ($e->getCode() == 1045) {
-                sendJsonErrorResponse(
-                    "Autentikasi MySQL ditolak untuk user '" . DB_USER . "': " . $e->getMessage(),
-                    "Kredensial di file config.php belum sesuai dengan hosting. Pastikan DB_USER, DB_PASS, dan DB_NAME di config.php sudah sesuai dengan user database yang dibuat di cPanel hosting dan sudah diberi izin (All Privileges)."
-                );
+                $pdo = new PDO($dsn, $currentUser, $currentPass, $options);
+                return $pdo;
+            } catch (PDOException $e) {
+                $lastException = $e;
+
+                // Jika error adalah database belum ada (error code 1049)
+                if ($e->getCode() == 1049) {
+                    try {
+                        $rootDsn = ($host === 'localhost') 
+                            ? "mysql:host=localhost;charset=utf8mb4" 
+                            : "mysql:host=" . $host . ";port=" . DB_PORT . ";charset=utf8mb4";
+                        $rootPdo = new PDO($rootDsn, $currentUser, $currentPass, $options);
+                        $rootPdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;");
+
+                        $sqlFile = __DIR__ . '/database.sql';
+                        if (file_exists($sqlFile)) {
+                            $rootPdo->exec("USE `" . DB_NAME . "`;");
+                            $rootPdo->exec(file_get_contents($sqlFile));
+                        }
+
+                        $pdo = new PDO($dsn, $currentUser, $currentPass, $options);
+                        return $pdo;
+                    } catch (Exception $inner) {
+                        // Coba kredensial berikutnya
+                    }
+                }
+
+                // Jika akses ditolak (1045), lanjut ke percobaan kredensial berikutnya
+                if ($e->getCode() == 1045) {
+                    continue;
+                }
             }
         }
     }

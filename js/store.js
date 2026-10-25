@@ -12,18 +12,26 @@ class Store {
     this.isLoading = true;
     this.lastError = null;
 
+    // Load cached Telegram settings and theme from localStorage as instant fallback
+    let localTg = {};
+    try {
+      const savedTg = localStorage.getItem('tugasin_tg_settings');
+      if (savedTg) localTg = JSON.parse(savedTg);
+    } catch (e) {}
+
     // Relational in-memory state, purely mirroring MySQL database
     this.data = {
       semesters: [],
       courses: [],
+      schedules: [],
       statuses: [],
       projects: [],
       tasks: [],
       settings: {
-        theme: 'light',
-        telegram_bot_token: '',
-        telegram_chat_id: '',
-        telegram_enabled: false,
+        theme: localStorage.getItem('tugasin_theme') || 'light',
+        telegram_bot_token: localTg.telegram_bot_token || '',
+        telegram_chat_id: localTg.telegram_chat_id || '',
+        telegram_enabled: typeof localTg.telegram_enabled === 'boolean' ? localTg.telegram_enabled : false,
         default_reminder_hours: [72, 24, 2],
         snooze_minutes: 15,
         timezone: 'Asia/Jakarta'
@@ -67,13 +75,44 @@ class Store {
       }
 
       if (json && json.ok && json.data) {
+        const backendSettings = json.data.settings || {};
+
+        let cachedTg = {};
+        try {
+          const s = localStorage.getItem('tugasin_tg_settings');
+          if (s) cachedTg = JSON.parse(s);
+        } catch (e) {}
+
+        if (backendSettings.telegram_bot_token) {
+          // Backend has valid token, persist to localStorage cache
+          try {
+            localStorage.setItem('tugasin_tg_settings', JSON.stringify({
+              telegram_bot_token: backendSettings.telegram_bot_token,
+              telegram_chat_id: backendSettings.telegram_chat_id || '',
+              telegram_enabled: Boolean(backendSettings.telegram_enabled)
+            }));
+          } catch (e) {}
+        } else if (cachedTg && cachedTg.telegram_bot_token) {
+          // Backend token was empty (e.g. wiped earlier or fresh database), restore from localStorage
+          backendSettings.telegram_bot_token = cachedTg.telegram_bot_token;
+          backendSettings.telegram_chat_id = cachedTg.telegram_chat_id || '';
+          backendSettings.telegram_enabled = Boolean(cachedTg.telegram_enabled);
+          // Restore to MySQL
+          this.sendToBackend('save_settings', {
+            telegram_bot_token: cachedTg.telegram_bot_token,
+            telegram_chat_id: cachedTg.telegram_chat_id || '',
+            telegram_enabled: cachedTg.telegram_enabled
+          });
+        }
+
         this.data = {
           semesters: Array.isArray(json.data.semesters) ? json.data.semesters : [],
           courses: Array.isArray(json.data.courses) ? json.data.courses : [],
+          schedules: Array.isArray(json.data.schedules) ? json.data.schedules : [],
           statuses: Array.isArray(json.data.statuses) ? json.data.statuses : [],
           projects: Array.isArray(json.data.projects) ? json.data.projects : [],
           tasks: Array.isArray(json.data.tasks) ? json.data.tasks : [],
-          settings: json.data.settings || { theme: 'light' }
+          settings: backendSettings
         };
 
         this.dbConnected = true;
@@ -268,8 +307,101 @@ class Store {
 
   deleteCourse(id) {
     this.data.courses = this.data.courses.filter(c => c.id !== id);
+    if (this.data.schedules) {
+      this.data.schedules = this.data.schedules.filter(s => s.course_id !== id);
+    }
     this.save();
     this.sendToBackend('delete_course', { id });
+  }
+
+  // --- SCHEDULES (JADWAL KULIAH) ---
+  getSchedules(filterDay = null, semesterId = null) {
+    if (!this.data.schedules) return [];
+    let list = [...this.data.schedules];
+
+    if (filterDay && filterDay !== 'all') {
+      list = list.filter(s => s.hari === filterDay);
+    }
+
+    if (semesterId && semesterId !== 'all') {
+      const semCourses = this.getCourses(semesterId).map(c => c.id);
+      list = list.filter(s => semCourses.includes(s.course_id));
+    }
+
+    const dayOrder = { 'Senin': 1, 'Selasa': 2, 'Rabu': 3, 'Kamis': 4, 'Jumat': 5, 'Sabtu': 6, 'Minggu': 7 };
+    list.sort((a, b) => {
+      const orderA = dayOrder[a.hari] || 99;
+      const orderB = dayOrder[b.hari] || 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.jam_mulai || '').localeCompare(b.jam_mulai || '');
+    });
+
+    return list;
+  }
+
+  getTodaySchedules() {
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const currentDay = dayNames[new Date().getDay()];
+    return this.getSchedules(currentDay);
+  }
+
+  getSchedule(id) {
+    if (!this.data.schedules) return null;
+    return this.data.schedules.find(s => s.id === id);
+  }
+
+  addSchedule(sch) {
+    const course = this.getCourse(sch.course_id);
+    const newSchedule = {
+      id: 'sch_' + Date.now(),
+      course_id: sch.course_id,
+      hari: sch.hari || 'Senin',
+      jam_mulai: sch.jam_mulai || '08:00',
+      jam_selesai: sch.jam_selesai || sch.jam_mulai || '10:00',
+      ruangan: sch.ruangan || '',
+      dosen: sch.dosen || (course ? course.dosen : ''),
+      jenis: sch.jenis || 'Kuliah',
+      warna: sch.warna || (course ? course.warna : '#2C5EF5'),
+      keterangan: sch.keterangan || '',
+      pengingat_aktif: sch.pengingat_aktif !== undefined ? Boolean(sch.pengingat_aktif) : true,
+      course_nama: course ? course.nama : '',
+      course_kode: course ? course.kode : '',
+      course_ikon: course ? course.ikon : 'book',
+      course_warna: course ? course.warna : '#2C5EF5'
+    };
+
+    if (!this.data.schedules) this.data.schedules = [];
+    this.data.schedules.push(newSchedule);
+    this.save();
+    this.sendToBackend('save_schedule', newSchedule);
+    return newSchedule;
+  }
+
+  updateSchedule(id, fields) {
+    if (!this.data.schedules) return;
+    const idx = this.data.schedules.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      const updated = { ...this.data.schedules[idx], ...fields };
+      if (fields.course_id) {
+        const course = this.getCourse(fields.course_id);
+        if (course) {
+          updated.course_nama = course.nama;
+          updated.course_kode = course.kode;
+          updated.course_ikon = course.ikon;
+          if (!fields.warna) updated.warna = course.warna;
+        }
+      }
+      this.data.schedules[idx] = updated;
+      this.save();
+      this.sendToBackend('save_schedule', updated);
+    }
+  }
+
+  deleteSchedule(id) {
+    if (!this.data.schedules) return;
+    this.data.schedules = this.data.schedules.filter(s => s.id !== id);
+    this.save();
+    this.sendToBackend('delete_schedule', { id });
   }
 
   // --- PROJECTS ---
@@ -627,10 +759,23 @@ class Store {
     return this.data.settings || {};
   }
 
-  updateSettings(fields) {
+  async updateSettings(fields) {
     this.data.settings = { ...this.data.settings, ...fields };
+
+    // Sync telegram settings to localStorage cache
+    if (fields.telegram_bot_token !== undefined || fields.telegram_chat_id !== undefined || fields.telegram_enabled !== undefined) {
+      try {
+        localStorage.setItem('tugasin_tg_settings', JSON.stringify({
+          telegram_bot_token: this.data.settings.telegram_bot_token || '',
+          telegram_chat_id: this.data.settings.telegram_chat_id || '',
+          telegram_enabled: Boolean(this.data.settings.telegram_enabled)
+        }));
+      } catch (e) {}
+    }
+
     this.save();
-    this.sendToBackend('save_settings', this.data.settings);
+    // Only send the fields being updated to avoid overwriting unrelated settings with defaults
+    return await this.sendToBackend('save_settings', fields);
   }
 
   async clearAllData() {

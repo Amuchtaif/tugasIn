@@ -175,23 +175,23 @@ class ListView {
             ${tagsHtml}
           </div>
         </td>
-        <td style="width: 180px;">
+        <td class="task-course-col">
           ${course ? `
             <span class="course-badge" style="border-left: 2px solid ${course.warna || 'var(--color-border)'}">
               ${this.escapeHtml(course.kode)} · ${this.escapeHtml(course.nama.length > 18 ? course.nama.substring(0, 16) + '...' : course.nama)}
             </span>
           ` : '<span class="mono-label" style="color: var(--color-muted);">-</span>'}
         </td>
-        <td style="width: 130px;">
+        <td class="task-priority-col">
           <span class="priority-badge ${prioClass}">
             <span class="priority-dot"></span>
             ${task.prioritas || 'Sedang'}
           </span>
         </td>
-        <td style="width: 170px;">
+        <td class="task-deadline-col">
           ${deadlineHtml}
         </td>
-        <td style="width: 80px; text-align: right; white-space: nowrap;">
+        <td class="task-actions-col">
           <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openTaskDetail('${task.id}')" title="Edit">
             <i class="fa-solid fa-pen-to-square"></i>
           </button>

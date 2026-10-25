@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-  <link rel="stylesheet" href="css/style.css?v=1.2">
+  <link rel="stylesheet" href="css/style.css?v=2.1">
   <script>
     (function () {
       // Default theme: Glassline Light Mode (design-lightmode.md)
@@ -68,6 +68,13 @@
               <span>Semua Tugas</span>
             </div>
             <span class="nav-counter" id="side-count-all">0</span>
+          </div>
+          <div class="nav-item sidebar-nav-item" data-view="schedule" onclick="window.app.navigateTo('schedule')">
+            <div class="nav-item-left">
+              <i class="fa-solid fa-calendar-days" style="width: 16px; text-align: center;"></i>
+              <span>Jadwal Kuliah</span>
+            </div>
+            <span class="nav-counter" id="side-count-schedule">0</span>
           </div>
           <div class="nav-item sidebar-nav-item" data-view="project" onclick="window.app.navigateTo('project')">
             <div class="nav-item-left">
@@ -132,14 +139,14 @@
             <i id="sidebar-toggle-icon" class="fa-solid fa-bars"></i>
           </button>
           <div class="breadcrumb-path">
-            <span id="breadcrumb-parent" class="mono-label">TugasIn</span>
-            <span>/</span>
+            <span id="breadcrumb-parent" class="mono-label breadcrumb-parent">TugasIn</span>
+            <span class="breadcrumb-separator">/</span>
             <span id="breadcrumb-title" class="breadcrumb-active">Hari Ini & Minggu Ini</span>
           </div>
         </div>
 
-        <!-- Quick Search Bar -->
-        <div class="top-bar-center">
+        <!-- Quick Search Bar (Desktop) -->
+        <div class="top-bar-center" id="top-bar-search">
           <div class="search-input-wrapper">
             <span class="search-icon"><i class="fa-solid fa-magnifying-glass"></i></span>
             <input type="search" id="global-search" placeholder="Cari tugas, tag, atau mata kuliah...">
@@ -164,6 +171,11 @@
             </div>
           </div>
 
+          <!-- Mobile Search Toggle Button (Hanya tampil di Mobile) -->
+          <button id="mobile-search-toggle-btn" class="btn btn-secondary btn-icon mobile-search-btn" onclick="window.app.toggleMobileSearch()" title="Cari Tugas">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+
           <!-- Theme Switcher Toggle (Glassline Light Mode / Graphite Dark Mode) -->
           <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" onclick="window.app.toggleTheme(event)"
             title="Beralih ke Mode Gelap (Graphite)">
@@ -172,10 +184,21 @@
 
           <!-- Primary Action Button: Tertiary Cobalt Accent from design-lightmode.md -->
           <button id="main-add-task-btn" class="btn btn-primary" onclick="window.app.openQuickAddModal()">
-            <i class="fa-solid fa-plus"></i> Task Baru
+            <i class="fa-solid fa-plus"></i> <span class="btn-text-full">Task Baru</span><span class="btn-text-short">Task</span>
           </button>
         </div>
       </header>
+
+      <!-- Expandable Mobile Search Bar (Khusus Layar Mobile) -->
+      <div id="mobile-search-bar" class="mobile-search-bar">
+        <div class="mobile-search-inner">
+          <i class="fa-solid fa-magnifying-glass mobile-search-icon"></i>
+          <input type="search" id="mobile-global-search" placeholder="Cari tugas, tag, mata kuliah...">
+          <button type="button" class="btn btn-ghost btn-icon-sm" onclick="window.app.toggleMobileSearch(false)" aria-label="Tutup Pencarian">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
 
       <!-- GREETING & REMINDER HERO SECTION -->
       <section id="greeting-section" class="greeting-section">
@@ -502,15 +525,17 @@
     </div>
   </div>
 
-  <!-- MODAL: COURSE -->
+  <!-- MODAL: COURSE (EDIT / ADD DENGAN PEMILIHAN ICON) -->
   <div id="course-modal" class="modal-overlay">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-medium">
       <div class="modal-header">
-        <div class="h2">Kelola Mata Kuliah</div>
+        <div class="h2" id="course-modal-title">Kelola Mata Kuliah</div>
         <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('course-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form onsubmit="window.app.saveCourse(event)">
         <input type="hidden" id="course-modal-id">
+        <input type="hidden" id="course-modal-icon" value="book">
+        <input type="hidden" id="course-modal-color" value="#2C5EF5">
         <div class="modal-body">
           <div class="form-group">
             <label class="form-label">Nama Mata Kuliah *</label>
@@ -534,10 +559,141 @@
             <label class="form-label">Semester</label>
             <select id="course-modal-sem"></select>
           </div>
+
+          <!-- Color Palette Picker -->
+          <div class="form-group">
+            <label class="form-label">Warna Identitas Mata Kuliah</label>
+            <div class="course-color-picker" id="course-modal-colors">
+              <button type="button" class="color-dot active" data-color="#2C5EF5" style="background: #2C5EF5;" onclick="window.app.selectCourseColor('#2C5EF5', this)" title="Cobalt Blue"></button>
+              <button type="button" class="color-dot" data-color="#0284C7" style="background: #0284C7;" onclick="window.app.selectCourseColor('#0284C7', this)" title="Sky Blue"></button>
+              <button type="button" class="color-dot" data-color="#059669" style="background: #059669;" onclick="window.app.selectCourseColor('#059669', this)" title="Emerald Green"></button>
+              <button type="button" class="color-dot" data-color="#D97706" style="background: #D97706;" onclick="window.app.selectCourseColor('#D97706', this)" title="Amber Orange"></button>
+              <button type="button" class="color-dot" data-color="#DC2626" style="background: #DC2626;" onclick="window.app.selectCourseColor('#DC2626', this)" title="Crimson Red"></button>
+              <button type="button" class="color-dot" data-color="#7C3AED" style="background: #7C3AED;" onclick="window.app.selectCourseColor('#7C3AED', this)" title="Violet Purple"></button>
+              <button type="button" class="color-dot" data-color="#DB2777" style="background: #DB2777;" onclick="window.app.selectCourseColor('#DB2777', this)" title="Rose Pink"></button>
+              <button type="button" class="color-dot" data-color="#475569" style="background: #475569;" onclick="window.app.selectCourseColor('#475569', this)" title="Slate Grey"></button>
+            </div>
+          </div>
+
+          <!-- Icon Selector (Pemilihan Icon Berbeda) -->
+          <div class="form-group">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <label class="form-label" style="margin-bottom: 0;">Pilih Icon Mata Kuliah *</label>
+              <span class="mono-label" style="color: var(--color-muted); font-size: 0.72rem;">38 Icon Pilihan</span>
+            </div>
+
+            <!-- Active Selected Icon Preview -->
+            <div class="icon-picker-active-box">
+              <div class="icon-picker-badge" id="course-modal-icon-badge" style="background: rgba(44, 94, 245, 0.12); color: #2C5EF5;">
+                <i id="course-modal-icon-i" class="fa-solid fa-book"></i>
+              </div>
+              <div style="flex: 1;">
+                <div class="icon-picker-name" id="course-modal-icon-name">book</div>
+                <div class="icon-picker-sub">Icon ini digunakan di sidebar, tag tugas, dan jadwal perkuliahan</div>
+              </div>
+            </div>
+
+            <!-- Icon Search Filter -->
+            <div style="margin: 10px 0 8px;">
+              <input type="text" id="course-icon-search" class="filter-input-sm" placeholder="Cari icon (contoh: code, database, calc)..." oninput="window.app.filterCourseIcons(this.value)" style="width: 100%; font-size: 0.8rem; padding: 6px 10px; height: 32px;">
+            </div>
+
+            <!-- Icon Grid -->
+            <div class="icon-picker-grid" id="course-modal-icon-grid">
+              <!-- Dynamically populated by window.app.renderCourseIconGrid() -->
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
+          <button type="button" id="course-modal-delete-btn" class="btn btn-danger" style="display: none;" onclick="window.app.deleteCourseFromModal()">Hapus MK</button>
           <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('course-modal')">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan Mata Kuliah</button>
+          <button type="submit" class="btn btn-primary" id="course-modal-submit-btn">Simpan Mata Kuliah</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: SCHEDULE (KELOLA JADWAL KULIAH & REMINDER TELEGRAM) -->
+  <div id="schedule-modal" class="modal-overlay">
+    <div class="modal-dialog modal-dialog-medium">
+      <div class="modal-header">
+        <div class="h2" id="schedule-modal-title">Tambah Jadwal Kuliah</div>
+        <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('schedule-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <form onsubmit="window.app.saveSchedule(event)">
+        <input type="hidden" id="schedule-modal-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Mata Kuliah *</label>
+            <select id="schedule-modal-course" required onchange="window.app.onScheduleCourseChange()"></select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Hari Kuliah *</label>
+              <select id="schedule-modal-day" required>
+                <option value="Senin" data-icon="fa-solid fa-calendar-day">Senin</option>
+                <option value="Selasa" data-icon="fa-solid fa-calendar-day">Selasa</option>
+                <option value="Rabu" data-icon="fa-solid fa-calendar-day">Rabu</option>
+                <option value="Kamis" data-icon="fa-solid fa-calendar-day">Kamis</option>
+                <option value="Jumat" data-icon="fa-solid fa-calendar-day">Jumat</option>
+                <option value="Sabtu" data-icon="fa-solid fa-calendar-day">Sabtu</option>
+                <option value="Minggu" data-icon="fa-solid fa-calendar-day">Minggu</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Jenis Pertemuan</label>
+              <select id="schedule-modal-type">
+                <option value="Kuliah" data-icon="fa-solid fa-chalkboard-user">Kuliah Teori</option>
+                <option value="Praktikum" data-icon="fa-solid fa-flask">Praktikum Laboratorium</option>
+                <option value="Responsi" data-icon="fa-solid fa-comments">Responsi</option>
+                <option value="Tutorial" data-icon="fa-solid fa-laptop-code">Tutorial</option>
+                <option value="Seminar" data-icon="fa-solid fa-users">Seminar / Diskusi</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Jam Mulai *</label>
+              <input type="time" id="schedule-modal-start" required value="08:00">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Jam Selesai *</label>
+              <input type="time" id="schedule-modal-end" required value="10:30">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Ruangan / Tempat</label>
+              <input type="text" id="schedule-modal-room" placeholder="Contoh: Lab Komputer 3 / Gedung D R.301 / Zoom">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Dosen Pengampu (Opsional)</label>
+              <input type="text" id="schedule-modal-lecturer" list="schedule-lecturer-list" placeholder="Otomatis mengikuti Mata Kuliah">
+              <datalist id="schedule-lecturer-list"></datalist>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Catatan / Link Pertemuan (Opsional)</label>
+            <input type="text" id="schedule-modal-notes" placeholder="Contoh: Bawa modul bab 4, link Zoom, materi presentasi">
+          </div>
+          <div class="form-group" style="margin-top: 4px; background: var(--color-surface-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 12px 14px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none; margin-bottom: 0;">
+              <input type="checkbox" id="schedule-modal-reminder" checked style="width: 18px; height: 18px; margin-top: 2px; accent-color: var(--color-tertiary);">
+              <div style="flex: 1;">
+                <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-primary); display: flex; align-items: center; gap: 6px;">
+                  <i class="fa-brands fa-telegram" style="color: #229ED9; font-size: 1rem;"></i> Integrasi Bot Pengingat Telegram Otomatis
+                </span>
+                <span style="font-size: 0.8rem; color: var(--color-secondary); display: block; margin-top: 2px; line-height: 1.4;">
+                  Bot akan otomatis mengirim notifikasi ke akun Telegram Anda <b>1 jam (60 menit)</b> dan <b>30 menit</b> sebelum perkuliahan dimulai.
+                </span>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="schedule-modal-delete-btn" class="btn btn-danger" style="display: none;" onclick="window.app.deleteScheduleFromModal()">Hapus Jadwal</button>
+          <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('schedule-modal')">Batal</button>
+          <button type="submit" class="btn btn-primary" id="schedule-modal-submit-btn">Simpan Jadwal</button>
         </div>
       </form>
     </div>
@@ -715,15 +871,56 @@
     </div>
   </div>
 
+  <!-- MODAL: KONFIRMASI RESTORE DATABASE (.SQL) -->
+  <div id="restore-sql-modal" class="modal-overlay" role="dialog" aria-modal="true" onclick="if (event.target === this) window.app.closeModal('restore-sql-modal')">
+    <div class="modal-dialog" style="max-width: 500px;">
+      <div class="modal-header">
+        <div class="h2" style="display: flex; align-items: center; gap: 8px; color: var(--color-primary);">
+          <i class="fa-solid fa-file-import" style="color: var(--color-tertiary);"></i>
+          <span>Konfirmasi Pulihkan Database</span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-icon-sm"
+          onclick="window.app.closeModal('restore-sql-modal')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size: 0.92rem; line-height: 1.6; color: var(--color-secondary); margin-bottom: 14px;">
+          Anda akan memulihkan struktur skema dan seluruh rekaman database TugasIn dari berkas SQL yang Anda pilih:
+        </div>
+        <div id="restore-sql-file-info" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--color-surface-elevated); border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 16px;">
+          <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); display: flex; align-items: center; justify-content: center; color: var(--color-tertiary); font-size: 1.25rem;">
+            <i class="fa-solid fa-database"></i>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div id="restore-file-name" style="font-weight: 600; font-size: 0.88rem; color: var(--color-primary); word-break: break-all;">backup.sql</div>
+            <div id="restore-file-size" style="font-size: 0.78rem; color: var(--color-muted); margin-top: 2px;">0 KB</div>
+          </div>
+        </div>
+        <div style="padding: 10px 14px; background: rgba(234, 179, 8, 0.1); border-left: 3px solid #EAB308; border-radius: 4px; font-size: 0.82rem; color: #CA8A04; display: flex; align-items: flex-start; gap: 8px;">
+          <i class="fa-solid fa-triangle-exclamation" style="margin-top: 2px;"></i>
+          <span><b>Peringatan:</b> Proses restore akan menimpa seluruh data yang ada saat ini dengan data dari berkas SQL tersebut. Pastikan Anda telah membuat cadangan data terkini terlebih dahulu jika diperlukan.</span>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="window.app.closeModal('restore-sql-modal')">
+          Batal
+        </button>
+        <button type="button" id="btn-execute-restore-sql" class="btn btn-primary"
+          onclick="window.app.submitRestoreSql()">
+          <i class="fa-solid fa-upload"></i> Pulihkan Sekarang
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Core Scripts -->
-  <script src="js/button.js?v=1.2"></script>
-  <script src="js/form-controls.js?v=1.3"></script>
-  <script src="js/store.js?v=1.2"></script>
-  <script src="js/telegram.js?v=1.2"></script>
-  <script src="js/list-view.js?v=1.2"></script>
-  <script src="js/kanban-view.js?v=1.2"></script>
-  <script src="js/calendar-view.js?v=1.2"></script>
-  <script src="js/app.js?v=1.2"></script>
+  <script src="js/button.js?v=2.2"></script>
+  <script src="js/form-controls.js?v=2.2"></script>
+  <script src="js/store.js?v=2.2"></script>
+  <script src="js/telegram.js?v=2.2"></script>
+  <script src="js/list-view.js?v=2.2"></script>
+  <script src="js/kanban-view.js?v=2.2"></script>
+  <script src="js/calendar-view.js?v=2.2"></script>
+  <script src="js/app.js?v=2.2"></script>
 
 </body>
 

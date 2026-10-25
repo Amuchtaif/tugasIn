@@ -3,16 +3,65 @@
  * Coordinates routing, modals, views, keyboard shortcuts, and state syncing
  */
 
+const COURSE_ICONS = [
+  { id: 'book', name: 'Buku / Teori', cat: 'general' },
+  { id: 'book-open', name: 'Referensi / Bacaan', cat: 'general' },
+  { id: 'code', name: 'Pemrograman / Koding', cat: 'tech' },
+  { id: 'laptop-code', name: 'Software Engineering', cat: 'tech' },
+  { id: 'database', name: 'Basis Data / SQL', cat: 'tech' },
+  { id: 'server', name: 'Server / Jaringan', cat: 'tech' },
+  { id: 'brain', name: 'Kecerdasan Buatan / AI', cat: 'tech' },
+  { id: 'microchip', name: 'Mikrokontroler / IoT', cat: 'tech' },
+  { id: 'network-wired', name: 'Infrastruktur Jaringan', cat: 'tech' },
+  { id: 'terminal', name: 'CLI / Sistem Operasi', cat: 'tech' },
+  { id: 'robot', name: 'Robotika / AI', cat: 'tech' },
+  { id: 'mobile-screen', name: 'Mobile App Dev', cat: 'tech' },
+  { id: 'globe', name: 'Web & Internet', cat: 'tech' },
+  { id: 'shield-halved', name: 'Keamanan Siber', cat: 'tech' },
+  { id: 'display', name: 'Sistem Komputer & Hardware', cat: 'tech' },
+  { id: 'palette', name: 'Desain Grafis / UI UX', cat: 'design' },
+  { id: 'pen-nib', name: 'Kepenulisan / Jurnal', cat: 'design' },
+  { id: 'compass-drafting', name: 'Arsitektur / Desain', cat: 'design' },
+  { id: 'layer-group', name: 'Multimedia / Layout', cat: 'design' },
+  { id: 'shapes', name: 'Desain Bentuk / 3D', cat: 'design' },
+  { id: 'calculator', name: 'Matematika / Kalkulus', cat: 'science' },
+  { id: 'chart-line', name: 'Statistika / Analisis', cat: 'science' },
+  { id: 'chart-pie', name: 'Visualisasi Data', cat: 'business' },
+  { id: 'chart-simple', name: 'Probabilitas', cat: 'science' },
+  { id: 'flask', name: 'Praktikum Kimia / Lab', cat: 'science' },
+  { id: 'atom', name: 'Fisika / Teori', cat: 'science' },
+  { id: 'dna', name: 'Bioinformatika / Sains', cat: 'science' },
+  { id: 'scale-balanced', name: 'Hukum / Etika Profesi', cat: 'general' },
+  { id: 'briefcase', name: 'Manajemen / Bisnis', cat: 'business' },
+  { id: 'building-columns', name: 'Ekonomi / Perbankan', cat: 'business' },
+  { id: 'coins', name: 'Akuntansi / Keuangan', cat: 'business' },
+  { id: 'bullhorn', name: 'Komunikasi / Marketing', cat: 'business' },
+  { id: 'comments', name: 'Bahasa / Diskusi', cat: 'general' },
+  { id: 'graduation-cap', name: 'Akademik / Skripsi', cat: 'general' },
+  { id: 'lightbulb', name: 'Kewirausahaan / Ide', cat: 'general' },
+  { id: 'award', name: 'Sertifikasi / Prestasi', cat: 'general' },
+  { id: 'gears', name: 'Teknik Mesin / Otomasi', cat: 'science' },
+  { id: 'cloud', name: 'Cloud Computing', cat: 'tech' }
+];
+
 class App {
   constructor() {
     this.store = window.store;
-    this.currentView = 'today'; // 'today', 'all', 'course', 'project', 'archive', 'trash', 'settings'
+    this.currentView = 'today'; // 'today', 'all', 'schedule', 'course', 'project', 'archive', 'trash', 'settings'
     this.activeCourseId = null;
     this.activeProjectId = null;
     this.viewMode = 'list'; // 'list', 'kanban', 'calendar'
     this.searchQuery = '';
     this.filterPriority = '';
     this.filterStatus = '';
+
+    // Schedule view filters & state
+    this.scheduleFilterDay = 'all';
+    this.scheduleFilterSemester = 'all';
+
+    // Course modal icon & color state
+    this.activeCourseIcon = 'book';
+    this.activeCourseColor = '#2C5EF5';
 
     this.listView = new ListView('view-body', this.store);
     this.kanbanView = new KanbanView('view-body', this.store);
@@ -50,6 +99,7 @@ class App {
 
     this.bindEvents();
     this.initFormControls();
+    this.renderCourseIconGrid();
     this.setupAttachmentDropzone();
     this.updateDbStatusUi();
     this.renderSidebar();
@@ -60,6 +110,9 @@ class App {
     if (this.store.initPromise) {
       await this.store.initPromise;
       this.updateDbStatusUi();
+      this.renderSidebar();
+      this.renderTopStats();
+      this.renderCurrentView();
     }
   }
 
@@ -163,12 +216,26 @@ class App {
       }
     });
 
-    // Global Search
+    // Global Search (Desktop & Mobile Sync)
     const searchInput = document.getElementById('global-search');
+    const mobileSearchInput = document.getElementById('mobile-global-search');
+
+    const handleSearchInput = (value, origin) => {
+      this.searchQuery = value;
+      if (origin !== 'desktop' && searchInput) searchInput.value = value;
+      if (origin !== 'mobile' && mobileSearchInput) mobileSearchInput.value = value;
+      this.renderCurrentView();
+    };
+
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
-        this.searchQuery = e.target.value;
-        this.renderCurrentView();
+        handleSearchInput(e.target.value, 'desktop');
+      });
+    }
+
+    if (mobileSearchInput) {
+      mobileSearchInput.addEventListener('input', (e) => {
+        handleSearchInput(e.target.value, 'mobile');
       });
     }
   }
@@ -236,7 +303,7 @@ class App {
       placeholder: 'Pilih Prioritas'
     });
 
-    // 4. Course & Project Modal Selects
+    // 4. Course, Project & Schedule Modal Selects
     CustomSelect.enhance('#course-modal-sem', {
       size: 'md',
       placeholder: 'Pilih Semester'
@@ -245,6 +312,26 @@ class App {
     CustomSelect.enhance('#proj-modal-status', {
       size: 'md',
       placeholder: 'Status Proyek'
+    });
+
+    // Schedule Modal Selects (Premium Selects)
+    CustomSelect.enhance('#schedule-modal-course', {
+      size: 'md',
+      searchable: true,
+      placeholder: 'Pilih Mata Kuliah',
+      onChange: () => {
+        this.onScheduleCourseChange();
+      }
+    });
+
+    CustomSelect.enhance('#schedule-modal-day', {
+      size: 'md',
+      placeholder: 'Pilih Hari Kuliah'
+    });
+
+    CustomSelect.enhance('#schedule-modal-type', {
+      size: 'md',
+      placeholder: 'Pilih Jenis Pertemuan'
     });
 
     // 5. Multi-Select Tags Input (Task 5.5)
@@ -284,6 +371,17 @@ class App {
       const appRoot = document.getElementById('app-root');
       const isCurrentlyCollapsed = appRoot ? appRoot.classList.contains('sidebar-collapsed') : false;
       this.setSidebarCollapsed(!isCurrentlyCollapsed, true);
+    }
+  }
+
+  toggleMobileSearch(forceState) {
+    const bar = document.getElementById('mobile-search-bar');
+    const input = document.getElementById('mobile-global-search');
+    if (!bar) return;
+    const willOpen = forceState !== undefined ? forceState : !bar.classList.contains('active');
+    bar.classList.toggle('active', willOpen);
+    if (willOpen && input) {
+      setTimeout(() => input.focus(), 80);
     }
   }
 
@@ -428,7 +526,7 @@ class App {
     document.documentElement.setAttribute('data-theme', target);
     localStorage.setItem('tugasin_theme', target);
 
-    if (this.store) {
+    if (notify && this.store && !this.store.isLoading) {
       this.store.updateSettings({ theme: target });
     }
 
@@ -465,21 +563,56 @@ class App {
     }, 500);
   }
 
-  showToastNotification(msg) {
+  showToast(msg, type = 'info') {
+    this.showToastNotification(msg, type);
+  }
+
+  showToastNotification(msg, type = 'info') {
     const container = document.getElementById('toast-container');
     if (!container) return;
+
+    if (type === 'info' && (msg.startsWith('✓') || msg.toLowerCase().includes('berhasil'))) {
+      type = 'success';
+    }
+
+    let iconClass = 'fa-solid fa-circle-info';
+    let iconColor = 'var(--color-tertiary)';
+    let typeClass = 'toast-info';
+
+    if (type === 'success') {
+      iconClass = 'fa-solid fa-circle-check';
+      iconColor = '#10b981';
+      typeClass = 'toast-success';
+    } else if (type === 'danger' || type === 'error') {
+      iconClass = 'fa-solid fa-circle-xmark';
+      iconColor = 'var(--color-danger)';
+      typeClass = 'toast-danger';
+    } else if (type === 'warning') {
+      iconClass = 'fa-solid fa-triangle-exclamation';
+      iconColor = '#f59e0b';
+      typeClass = 'toast-warning';
+    }
+
     const toast = document.createElement('div');
-    toast.className = 'toast toast-reminder';
+    toast.className = `toast ${typeClass}`;
     toast.innerHTML = `
-      <div style="flex: 1; display: flex; align-items: center; justify-content: space-between;">
-        <span style="font-size: 0.88rem; font-weight: 500;">${this.escapeHtml(msg)}</span>
-        <button class="btn btn-ghost btn-icon-sm" onclick="this.closest('.toast').remove()"><i class="fa-solid fa-xmark"></i></button>
+      <i class="${iconClass}" style="color: ${iconColor}; font-size: 1.15rem; flex-shrink: 0;"></i>
+      <div style="flex: 1; min-width: 0; padding-right: 4px;">
+        <span style="font-size: 0.88rem; font-weight: 500; line-height: 1.4; color: var(--color-primary);">${this.escapeHtml(msg)}</span>
       </div>
+      <button type="button" class="btn btn-ghost btn-icon-sm" style="flex-shrink: 0; width: 24px !important; height: 24px !important; min-height: 24px !important; padding: 0 !important; color: var(--color-muted);" onclick="this.closest('.toast').remove()">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
     `;
     container.appendChild(toast);
+
     setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 3000);
+      if (toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        setTimeout(() => toast.remove(), 200);
+      }
+    }, 3500);
   }
 
   // --- NAVIGATION ROUTING ---
@@ -530,6 +663,11 @@ class App {
     const trashCountEl = document.getElementById('side-count-trash');
     if (trashCountEl) trashCountEl.textContent = trashTasks.length;
 
+    const schedCountEl = document.getElementById('side-count-schedule');
+    if (schedCountEl && this.store.getSchedules) {
+      schedCountEl.textContent = this.store.getSchedules().length;
+    }
+
     // Highlight active nav items
     document.querySelectorAll('.sidebar-nav-item').forEach(el => {
       el.classList.remove('active');
@@ -564,13 +702,19 @@ class App {
       courses.forEach(course => {
         const courseTasks = activeTasks.filter(t => t.course_id === course.id);
         const isActive = this.currentView === 'course' && this.activeCourseId === course.id;
+        const iconName = course.ikon || 'book';
 
         treeHtml += `
           <div class="course-item ${isActive ? 'active' : ''}" onclick="window.app.navigateTo('course', { courseId: '${course.id}' })">
-            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <i class="fa-solid fa-book" style="color: ${course.warna || 'var(--color-secondary)'}; font-size: 0.72rem;"></i>
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+              <i class="fa-solid fa-${iconName}" style="color: ${course.warna || 'var(--color-secondary)'}; font-size: 0.75rem; width: 14px; text-align: center;"></i>
               <span class="course-code-tag">${this.escapeHtml(course.kode)}</span>
               <span>${this.escapeHtml(course.nama)}</span>
+            </div>
+            <div class="course-actions">
+              <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openCourseModal('${course.id}')" title="Edit Mata Kuliah">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
             </div>
             <span class="nav-counter">${courseTasks.length}</span>
           </div>
@@ -792,6 +936,23 @@ class App {
       statusId: this.filterStatus
     };
 
+    const breadcrumbParent = document.getElementById('breadcrumb-parent');
+    const breadcrumbTitle = document.getElementById('breadcrumb-title');
+    if (breadcrumbParent) breadcrumbParent.textContent = 'TugasIn';
+    if (breadcrumbTitle) {
+      if (this.currentView === 'today') breadcrumbTitle.textContent = 'Hari Ini & Minggu Ini';
+      else if (this.currentView === 'all') breadcrumbTitle.textContent = 'Semua Tugas';
+      else if (this.currentView === 'schedule') breadcrumbTitle.textContent = 'Jadwal Kuliah';
+      else if (this.currentView === 'project') breadcrumbTitle.textContent = 'Proyek & Tugas Besar';
+      else if (this.currentView === 'archive') breadcrumbTitle.textContent = 'Arsip Semester';
+      else if (this.currentView === 'trash') breadcrumbTitle.textContent = 'Sampah';
+      else if (this.currentView === 'settings') breadcrumbTitle.textContent = 'Pengaturan';
+      else if (this.currentView === 'course') {
+        const c = this.store.getCourse(this.activeCourseId);
+        breadcrumbTitle.textContent = c ? c.nama : 'Mata Kuliah';
+      }
+    }
+
     if (this.currentView === 'today') {
       if (titleEl) titleEl.textContent = 'Hari Ini & Minggu Ini';
       if (subtitleEl) subtitleEl.textContent = 'Tugas Aktif';
@@ -807,10 +968,34 @@ class App {
       const tasks = this.store.getTasks(filterOptions);
       this.renderViewContainer(tasks);
 
+    } else if (this.currentView === 'schedule') {
+      if (titleEl) titleEl.textContent = 'Jadwal Kuliah Mingguan';
+      if (subtitleEl) subtitleEl.textContent = 'Pengingat Telegram Otomatis (1 Jam & 30 Menit Sebelum Kuliah)';
+      if (toolbar) toolbar.style.display = 'none';
+      this.renderScheduleView();
+
     } else if (this.currentView === 'course') {
       const course = this.store.getCourse(this.activeCourseId);
-      if (titleEl) titleEl.textContent = course ? `${course.kode} · ${course.nama}` : 'Mata Kuliah';
-      if (subtitleEl) subtitleEl.textContent = 'Mata Kuliah';
+      if (titleEl) {
+        if (course) {
+          titleEl.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: ${course.warna || '#2C5EF5'}20; color: ${course.warna || '#2C5EF5'}; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem;">
+                  <i class="fa-solid fa-${course.ikon || 'book'}"></i>
+                </span>
+                <span>${this.escapeHtml(course.kode)} · ${this.escapeHtml(course.nama)}</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="window.app.openCourseModal('${course.id}')">
+                <i class="fa-solid fa-pen-to-square"></i> Edit Mata Kuliah
+              </button>
+            </div>
+          `;
+        } else {
+          titleEl.textContent = 'Mata Kuliah';
+        }
+      }
+      if (subtitleEl) subtitleEl.textContent = course ? `${course.sks} SKS · Dosen: ${course.dosen || '-'}` : 'Mata Kuliah';
       if (toolbar) toolbar.style.display = 'flex';
       filterOptions.courseId = this.activeCourseId;
       const tasks = this.store.getTasks(filterOptions);
@@ -929,6 +1114,299 @@ class App {
     `;
 
     container.innerHTML = html;
+  }
+
+  // --- SCHEDULE VIEW (JADWAL KULIAH MINGGUAN & NOTIFIKASI TELEGRAM) ---
+  renderScheduleView() {
+    const container = document.getElementById('view-body');
+    if (!container) return;
+
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const currentDayIndex = new Date().getDay();
+    const currentDayName = dayNames[currentDayIndex];
+    const now = new Date();
+    const currentHourMin = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const allSchedules = this.store.getSchedules ? this.store.getSchedules('all', this.scheduleFilterSemester) : [];
+    const todaySchedules = allSchedules.filter(s => s.hari === currentDayName);
+
+    // Calculate total SKS terjadwal
+    const courseIds = [...new Set(allSchedules.map(s => s.course_id))];
+    const totalSks = courseIds.reduce((sum, cid) => {
+      const c = this.store.getCourse(cid);
+      return sum + (c ? (Number(c.sks) || 0) : 0);
+    }, 0);
+
+    const settings = this.store.getSettings();
+    const tgConnected = Boolean(settings.telegram_enabled && settings.telegram_bot_token && settings.telegram_chat_id);
+    const semesters = this.store.getSemesters(false);
+    const daysList = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+
+    let html = `
+      <div class="schedule-container">
+        <!-- Header Card with Summary & Actions -->
+        <div class="schedule-header-card">
+          <div>
+            <div class="h2" style="display: flex; align-items: center; gap: 10px;">
+              <i class="fa-solid fa-calendar-days" style="color: var(--color-tertiary);"></i>
+              <span>Jadwal Kuliah & Praktikum</span>
+            </div>
+            <p class="mono-label" style="margin-top: 4px;">
+              Pengingat otomatis terkirim ke Telegram <b>1 jam (60 mnt)</b> dan <b>30 menit</b> sebelum kuliah
+            </p>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="window.app.testScheduleReminderNow()" title="Kirim simulasi pesan pengingat ke Telegram">
+              <i class="fa-brands fa-telegram" style="color: #229ED9;"></i> Tes Reminder Telegram
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="window.app.openScheduleModal()">
+              <i class="fa-solid fa-plus"></i> Tambah Jadwal Kuliah
+            </button>
+          </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="schedule-stats-row">
+          <div class="schedule-stat-box">
+            <div class="schedule-stat-icon" style="background: rgba(44, 94, 245, 0.1); color: var(--color-tertiary);">
+              <i class="fa-solid fa-clock"></i>
+            </div>
+            <div>
+              <div class="schedule-stat-num">${allSchedules.length}</div>
+              <div class="schedule-stat-label">Jadwal Terdaftar</div>
+            </div>
+          </div>
+
+          <div class="schedule-stat-box">
+            <div class="schedule-stat-icon" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success);">
+              <i class="fa-solid fa-graduation-cap"></i>
+            </div>
+            <div>
+              <div class="schedule-stat-num">${totalSks} <span style="font-size: 0.85rem; font-weight: normal;">SKS</span></div>
+              <div class="schedule-stat-label">Beban Perkuliahan</div>
+            </div>
+          </div>
+
+          <div class="schedule-stat-box">
+            <div class="schedule-stat-icon" style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);">
+              <i class="fa-solid fa-calendar-day"></i>
+            </div>
+            <div>
+              <div class="schedule-stat-num">${todaySchedules.length}</div>
+              <div class="schedule-stat-label">Kuliah Hari Ini (${currentDayName})</div>
+            </div>
+          </div>
+
+          <div class="schedule-stat-box" style="margin-left: auto;">
+            <div class="schedule-stat-icon" style="background: ${tgConnected ? 'rgba(34, 158, 217, 0.12)' : 'rgba(239, 68, 68, 0.1)'}; color: ${tgConnected ? '#229ED9' : 'var(--color-danger)'};">
+              <i class="fa-brands fa-telegram"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.88rem; font-weight: 600; color: ${tgConnected ? 'var(--color-primary)' : 'var(--color-danger)'}; display: flex; align-items: center; gap: 6px;">
+                <span class="status-dot ${tgConnected ? 'active' : 'danger'}"></span>
+                ${tgConnected ? 'Bot Telegram Aktif (1h & 30m)' : 'Bot Belum Terhubung'}
+              </div>
+              <div class="schedule-stat-label">${tgConnected ? 'Notifikasi otomatis aktif' : '<a href="#" onclick="window.app.navigateTo(\'settings\'); return false;" style="text-decoration: underline; color: var(--color-danger);">Setel token di Pengaturan</a>'}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter & Control Toolbar -->
+        <div class="schedule-toolbar">
+          <!-- Day Filter Tabs -->
+          <div class="schedule-day-tabs">
+            <button class="schedule-day-tab ${this.scheduleFilterDay === 'all' ? 'active' : ''}" onclick="window.app.setScheduleDayFilter('all')">
+              <span>Semua Hari</span>
+            </button>
+            <button class="schedule-day-tab ${this.scheduleFilterDay === 'today' ? 'active' : ''}" onclick="window.app.setScheduleDayFilter('today')">
+              <i class="fa-solid fa-bolt" style="font-size: 0.75rem;"></i>
+              <span>Hari Ini (${currentDayName})</span>
+              <span class="today-badge">${todaySchedules.length}</span>
+            </button>
+            ${daysList.map(day => {
+              const isToday = day === currentDayName;
+              const count = allSchedules.filter(s => s.hari === day).length;
+              const isActive = this.scheduleFilterDay === day;
+              return `
+                <button class="schedule-day-tab ${isActive ? 'active' : ''}" onclick="window.app.setScheduleDayFilter('${day}')">
+                  <span>${day}</span>
+                  ${isToday ? '<span class="today-badge">Hari Ini</span>' : ''}
+                  <span style="opacity: 0.7; font-size: 0.75rem;">(${count})</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- Semester Filter Dropdown with Premium Select -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <select class="filter-select" id="schedule-filter-semester-select" style="min-width: 175px;">
+              <option value="all" data-icon="fa-solid fa-layer-group">Semua Semester</option>
+              ${semesters.map(s => `<option value="${s.id}" data-icon="fa-solid fa-graduation-cap" ${this.scheduleFilterSemester === s.id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- Weekly Schedule Columns Grid -->
+        <div class="schedule-week-grid">
+    `;
+
+    // Determine which days to display
+    let displayDays = daysList;
+    if (this.scheduleFilterDay === 'today') {
+      displayDays = [currentDayName];
+    } else if (this.scheduleFilterDay !== 'all') {
+      displayDays = [this.scheduleFilterDay];
+    }
+
+    displayDays.forEach(day => {
+      const isToday = day === currentDayName;
+      const daySchedules = allSchedules.filter(s => s.hari === day);
+
+      html += `
+        <div class="schedule-day-col ${isToday ? 'is-today' : ''}">
+          <div class="schedule-col-header">
+            <div class="schedule-col-title">
+              <span>${day}</span>
+              ${isToday ? '<span class="today-badge" style="background: rgba(44, 94, 245, 0.15); color: var(--color-tertiary); font-size: 0.68rem; padding: 2px 6px; border-radius: 4px;">HARI INI</span>' : ''}
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="schedule-col-count">${daySchedules.length} Kelas</span>
+              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openScheduleModal(null, '${day}')" title="Tambah Jadwal Hari ${day}">
+                <i class="fa-solid fa-plus"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="schedule-col-cards">
+      `;
+
+      if (daySchedules.length === 0) {
+        html += `
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 12px; text-align: center; color: var(--color-muted); border: 1px dashed var(--color-border); border-radius: var(--radius-md); margin: auto 0;">
+            <i class="fa-regular fa-calendar-xmark" style="font-size: 1.4rem; margin-bottom: 6px; opacity: 0.5;"></i>
+            <span style="font-size: 0.8rem;">Tidak ada jadwal ${day}</span>
+            <button class="btn btn-ghost btn-sm" style="margin-top: 8px; font-size: 0.75rem;" onclick="window.app.openScheduleModal(null, '${day}')">
+              <i class="fa-solid fa-plus"></i> Tambah
+            </button>
+          </div>
+        `;
+      } else {
+        daySchedules.forEach(sch => {
+          const course = this.store.getCourse(sch.course_id);
+          const courseCode = course ? course.kode : (sch.course_kode || 'MK');
+          const courseName = course ? course.nama : (sch.course_nama || 'Mata Kuliah');
+          const courseIkon = course ? (course.ikon || 'book') : (sch.course_ikon || 'book');
+          const courseColor = sch.warna || (course ? course.warna : '#2C5EF5');
+          const dosen = sch.dosen || (course ? course.dosen : '-');
+          const ruangan = sch.ruangan || 'Ruang Kuliah';
+          const jenis = sch.jenis || 'Kuliah';
+
+          const startTime = (sch.jam_mulai || '').slice(0, 5);
+          const endTime = (sch.jam_selesai || '').slice(0, 5);
+
+          // Live status for today
+          let liveIndicatorHtml = '';
+          if (isToday && sch.jam_mulai) {
+            if (currentHourMin >= startTime && currentHourMin <= endTime) {
+              liveIndicatorHtml = `<span class="schedule-live-indicator ongoing"><i class="fa-solid fa-circle-dot"></i> Sedang Berlangsung</span>`;
+            } else if (currentHourMin < startTime) {
+              const [sh, sm] = startTime.split(':').map(Number);
+              const [nh, nm] = currentHourMin.split(':').map(Number);
+              const diffMins = (sh * 60 + sm) - (nh * 60 + nm);
+              if (diffMins <= 60 && diffMins > 0) {
+                liveIndicatorHtml = `<span class="schedule-live-indicator soon"><i class="fa-solid fa-clock"></i> Mulai ${diffMins} mnt lagi</span>`;
+              }
+            } else {
+              liveIndicatorHtml = `<span style="font-size: 0.72rem; color: var(--color-muted);"><i class="fa-solid fa-check"></i> Selesai Hari Ini</span>`;
+            }
+          }
+
+          html += `
+            <div class="schedule-card" style="border-left-color: ${courseColor};">
+              <div class="schedule-card-top">
+                <span class="schedule-time-badge">
+                  <i class="fa-regular fa-clock" style="font-size: 0.75rem;"></i>
+                  ${startTime} - ${endTime}
+                </span>
+                ${liveIndicatorHtml}
+              </div>
+
+              <div class="schedule-course-title">
+                <span style="width: 26px; height: 26px; border-radius: var(--radius-sm); background: ${courseColor}18; color: ${courseColor}; display: inline-flex; align-items: center; justify-content: center; font-size: 0.85rem; flex-shrink: 0;">
+                  <i class="fa-solid fa-${courseIkon}"></i>
+                </span>
+                <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${this.escapeHtml(courseCode)} · ${this.escapeHtml(courseName)}">
+                  ${this.escapeHtml(courseCode)} · ${this.escapeHtml(courseName)}
+                </span>
+              </div>
+
+              <div class="schedule-info-row">
+                <div class="schedule-info-item">
+                  <i class="fa-solid fa-location-dot"></i>
+                  <span>${this.escapeHtml(ruangan)}</span>
+                </div>
+                <div class="schedule-info-item">
+                  <i class="fa-solid fa-chalkboard-user"></i>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(dosen)}</span>
+                </div>
+                <div class="schedule-info-item">
+                  <i class="fa-solid fa-tag"></i>
+                  <span class="badge" style="font-size: 0.7rem; padding: 1px 6px;">${this.escapeHtml(jenis)}</span>
+                </div>
+                ${sch.keterangan ? `
+                  <div class="schedule-info-item" style="color: var(--color-muted); font-size: 0.78rem; margin-top: 2px;">
+                    <i class="fa-regular fa-note-sticky"></i>
+                    <span>${this.escapeHtml(sch.keterangan)}</span>
+                  </div>
+                ` : ''}
+              </div>
+
+              <div class="schedule-card-footer">
+                <span class="schedule-tg-badge" title="Pengingat Telegram 1 jam dan 30 menit sebelum jadwal aktif">
+                  <i class="fa-brands fa-telegram"></i> 1h & 30m
+                </span>
+
+                <div class="schedule-actions">
+                  <button class="btn btn-ghost btn-icon-sm" onclick="window.app.testScheduleReminder('${sch.id}')" title="Tes Notifikasi Telegram">
+                    <i class="fa-brands fa-telegram" style="color: #229ED9;"></i>
+                  </button>
+                  <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openScheduleModal('${sch.id}')" title="Edit Jadwal">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                  </button>
+                  <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteScheduleConfirm('${sch.id}')" title="Hapus Jadwal">
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    html += `
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Enhance Schedule Semester Filter with CustomSelect
+    if (window.CustomSelect) {
+      CustomSelect.enhance('#schedule-filter-semester-select', {
+        size: 'sm',
+        placeholder: 'Semua Semester',
+        onChange: (val) => {
+          this.setScheduleSemesterFilter(val);
+        }
+      });
+    }
   }
 
   renderArchiveView() {
@@ -1091,7 +1569,7 @@ class App {
                 </div>
               </div>
               <div class="theme-choice-desc">
-                Cool engineering greys dengan aksen tunggal lime (<code>#B4FF39</code>) & font Inter. Berdasarkan <code>design.md</code>.
+                Cool engineering greys dengan aksen tunggal lime (<code>#B4FF39</code>) & font Geist seragam.
               </div>
               <div class="theme-color-palette">
                 <div class="theme-color-chip" style="background: #0E1013; border: 1px solid #3E4552;" title="Neutral (#0E1013)"></div>
@@ -1170,6 +1648,75 @@ class App {
           </form>
         </div>
 
+        <!-- Backup & Restore SQL Card -->
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div class="h3" style="margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-file-shield" style="color: var(--color-tertiary);"></i>
+                <span>Cadangkan & Pulihkan Database (.SQL)</span>
+              </div>
+              <div style="font-size: 0.82rem; color: var(--color-secondary);">
+                Ekspor seluruh struktur skema dan rekaman data TugasIn ke dalam berkas standar <code>.sql</code> untuk arsip mandiri, atau pulihkan data dari berkas cadangan sebelumnya.
+              </div>
+            </div>
+            <span class="mono-label" style="font-size: 0.75rem; background: var(--color-surface-elevated); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--color-border); white-space: nowrap;">
+              <i class="fa-solid fa-shield-halved" style="color: var(--color-tertiary);"></i> 10 Tabel Lengkap Termasuk Jadwal
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px;">
+            <!-- Box Backup -->
+            <div style="background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                  <i class="fa-solid fa-download" style="color: var(--color-tertiary);"></i>
+                  <span>Cadangkan Database (Backup .SQL)</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-secondary); line-height: 1.5;">
+                  Unduh seluruh data (semester, mata kuliah, jadwal kuliah, tugas, subtask, proyek, status, dan pengaturan) dalam satu berkas SQL terformat query murni.
+                </div>
+              </div>
+              <div>
+                <a href="api.php?action=backup_sql" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center; text-decoration: none;">
+                  <i class="fa-solid fa-cloud-arrow-down"></i> Unduh Berkas Backup (.sql)
+                </a>
+              </div>
+            </div>
+
+            <!-- Box Restore -->
+            <div style="background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); border: 1px dashed var(--color-border); display: flex; flex-direction: column; justify-content: space-between; gap: 12px; transition: border-color 0.2s, background-color 0.2s;"
+              ondragover="event.preventDefault(); this.style.borderColor='var(--color-tertiary)'; this.style.background='var(--color-surface-elevated)';"
+              ondragleave="this.style.borderColor='var(--color-border)'; this.style.background='var(--color-surface)';"
+              ondrop="event.preventDefault(); this.style.borderColor='var(--color-border)'; this.style.background='var(--color-surface)'; window.app.handleRestoreFileSelected({ target: { files: event.dataTransfer.files } });">
+              <div>
+                <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                  <i class="fa-solid fa-upload" style="color: #10B981;"></i>
+                  <span>Pulihkan Database (Restore .SQL)</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-secondary); line-height: 1.5;">
+                  Unggah berkas <code>.sql</code> cadangan TugasIn untuk menimpa dan memulihkan seluruh tabel dan catatan ke server database MySQL secara instan.
+                </div>
+              </div>
+              <div>
+                <input type="file" id="restore-sql-file-input" accept=".sql" style="display: none;" onchange="window.app.handleRestoreFileSelected(event)">
+                <button type="button" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center;" onclick="document.getElementById('restore-sql-file-input').click()">
+                  <i class="fa-solid fa-folder-open"></i> Pilih Berkas SQL & Pulihkan...
+                </button>
+                <div style="font-size: 0.73rem; color: var(--color-muted); text-align: center; margin-top: 6px;">
+                  Bisa klik tombol di atas atau tarik (drag & drop) berkas <code>.sql</code> ke kotak ini
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size: 0.78rem; color: var(--color-muted); display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-circle-info"></i>
+            <span>Berkas backup kompatibel dengan phpMyAdmin, MySQL CLI, MariaDB, serta migrasi cPanel / VPS.</span>
+          </div>
+          <div id="restore-feedback" class="mono-label" style="margin-top: 10px;"></div>
+        </div>
+
         <!-- MySQL Full Database Access & Management Box -->
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
@@ -1201,6 +1748,10 @@ class App {
             <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
               <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Mata Kuliah</div>
               <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.courses || []).length} Kursus</div>
+            </div>
+            <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
+              <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Jadwal Kuliah</div>
+              <div style="font-weight: 600; font-size: 0.88rem;">${(this.store.data.schedules || []).length} Jadwal</div>
             </div>
             <div style="background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border);">
               <div style="font-size: 0.72rem; color: var(--color-muted); text-transform: uppercase;">Total Tugas</div>
@@ -1630,7 +2181,76 @@ class App {
     this.closeModal('semester-modal');
   }
 
-  // --- COURSE MODAL ---
+  // --- COURSE MODAL & ICON PICKER SYSTEM ---
+  renderCourseIconGrid() {
+    const grid = document.getElementById('course-modal-icon-grid');
+    if (!grid) return;
+    if (grid.dataset.rendered === 'true') return;
+
+    grid.innerHTML = COURSE_ICONS.map(item => `
+      <button type="button" class="icon-picker-item" data-icon="${item.id}" data-name="${item.name.toLowerCase()}" onclick="window.app.selectCourseIcon('${item.id}')" title="${item.name} (${item.id})">
+        <i class="fa-solid fa-${item.id}"></i>
+      </button>
+    `).join('');
+    grid.dataset.rendered = 'true';
+  }
+
+  selectCourseIcon(iconId) {
+    this.activeCourseIcon = iconId;
+    const inp = document.getElementById('course-modal-icon');
+    if (inp) inp.value = iconId;
+
+    const iconI = document.getElementById('course-modal-icon-i');
+    if (iconI) iconI.className = `fa-solid fa-${iconId}`;
+
+    const iconNameEl = document.getElementById('course-modal-icon-name');
+    if (iconNameEl) {
+      const match = COURSE_ICONS.find(i => i.id === iconId);
+      iconNameEl.textContent = match ? `${iconId} (${match.name})` : iconId;
+    }
+
+    const grid = document.getElementById('course-modal-icon-grid');
+    if (grid) {
+      const prevActive = grid.querySelector('.icon-picker-item.active');
+      if (prevActive) prevActive.classList.remove('active');
+      const newActive = grid.querySelector(`.icon-picker-item[data-icon="${iconId}"]`);
+      if (newActive) newActive.classList.add('active');
+    }
+  }
+
+  filterCourseIcons(keyword) {
+    const q = (keyword || '').toLowerCase().trim();
+    const grid = document.getElementById('course-modal-icon-grid');
+    if (!grid) return;
+    const children = grid.children;
+    for (let i = 0; i < children.length; i++) {
+      const btn = children[i];
+      const id = btn.getAttribute('data-icon') || '';
+      const name = btn.getAttribute('data-name') || '';
+      btn.style.display = (!q || id.includes(q) || name.includes(q)) ? 'flex' : 'none';
+    }
+  }
+
+  selectCourseColor(colorHex, btnEl) {
+    this.activeCourseColor = colorHex;
+    const inp = document.getElementById('course-modal-color');
+    if (inp) inp.value = colorHex;
+
+    const badge = document.getElementById('course-modal-icon-badge');
+    if (badge) {
+      badge.style.background = `${colorHex}20`;
+      badge.style.color = colorHex;
+    }
+
+    const container = document.getElementById('course-modal-colors');
+    if (container) {
+      const prev = container.querySelector('.color-dot.active');
+      if (prev) prev.classList.remove('active');
+      const target = btnEl || container.querySelector(`.color-dot[data-color="${colorHex}"]`);
+      if (target) target.classList.add('active');
+    }
+  }
+
   openCourseModal(courseId = null, defaultSemId = null) {
     const course = courseId ? this.store.getCourse(courseId) : null;
     document.getElementById('course-modal-id').value = course ? course.id : '';
@@ -1638,6 +2258,36 @@ class App {
     document.getElementById('course-modal-code').value = course ? course.kode : '';
     document.getElementById('course-modal-lecturer').value = course ? course.dosen : '';
     document.getElementById('course-modal-sks').value = course ? course.sks : 3;
+
+    // Title & Buttons
+    const titleEl = document.getElementById('course-modal-title');
+    const deleteBtn = document.getElementById('course-modal-delete-btn');
+    const submitBtn = document.getElementById('course-modal-submit-btn');
+
+    if (course) {
+      if (titleEl) titleEl.textContent = `Edit Mata Kuliah: ${course.nama}`;
+      if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+      if (submitBtn) submitBtn.textContent = 'Perbarui Mata Kuliah';
+    } else {
+      if (titleEl) titleEl.textContent = 'Tambah Mata Kuliah Baru';
+      if (deleteBtn) deleteBtn.style.display = 'none';
+      if (submitBtn) submitBtn.textContent = 'Simpan Mata Kuliah';
+    }
+
+    // Color & Icon
+    const initialColor = course && course.warna ? course.warna : '#2C5EF5';
+    const initialIcon = course && course.ikon ? course.ikon : 'book';
+
+    this.renderCourseIconGrid();
+    this.selectCourseIcon(initialIcon);
+    this.selectCourseColor(initialColor);
+
+    // Reset icon search
+    const searchInp = document.getElementById('course-icon-search');
+    if (searchInp) {
+      searchInp.value = '';
+      this.filterCourseIcons('');
+    }
 
     // Semester select
     const semSelect = document.getElementById('course-modal-sem');
@@ -1664,16 +2314,230 @@ class App {
     const dosen = document.getElementById('course-modal-lecturer').value.trim();
     const sks = document.getElementById('course-modal-sks').value;
     const semester_id = document.getElementById('course-modal-sem').value;
+    const warna = document.getElementById('course-modal-color').value || '#2C5EF5';
+    const ikon = document.getElementById('course-modal-icon').value || 'book';
 
     if (!nama) return;
 
+    // Sembunyikan form modal terlebih dahulu
+    this.closeModal('course-modal');
+
+    // Simpan data ke store dan tampilkan toast berhasil
     if (id) {
-      this.store.updateCourse(id, { nama, kode, dosen, sks, semester_id });
+      this.store.updateCourse(id, { nama, kode, dosen, sks, semester_id, warna, ikon });
+      this.showToast(`Mata kuliah "${nama}" berhasil diperbarui.`, 'success');
     } else {
-      this.store.addCourse({ nama, kode, dosen, sks, semester_id });
+      this.store.addCourse({ nama, kode, dosen, sks, semester_id, warna, ikon });
+      this.showToast(`Mata kuliah "${nama}" berhasil ditambahkan.`, 'success');
     }
 
-    this.closeModal('course-modal');
+    this.renderSidebar();
+    this.renderCurrentView();
+  }
+
+  deleteCourseFromModal() {
+    const id = document.getElementById('course-modal-id').value;
+    if (!id) return;
+    const course = this.store.getCourse(id);
+    const courseName = course ? course.nama : 'Mata Kuliah';
+
+    if (confirm(`Apakah Anda yakin ingin menghapus mata kuliah "${courseName}"?\nSeluruh tugas dan jadwal yang terkait akan ikut terhapus.`)) {
+      this.store.deleteCourse(id);
+      this.closeModal('course-modal');
+      this.showToast(`Mata kuliah "${courseName}" berhasil dihapus.`, 'info');
+      if (this.currentView === 'course' && this.activeCourseId === id) {
+        this.navigateTo('all');
+      } else {
+        this.renderSidebar();
+        this.renderCurrentView();
+      }
+    }
+  }
+
+  // --- SCHEDULE ACTIONS & MODAL ---
+  setScheduleDayFilter(day) {
+    this.scheduleFilterDay = day;
+    this.renderScheduleView();
+  }
+
+  setScheduleSemesterFilter(semId) {
+    this.scheduleFilterSemester = semId;
+    this.renderScheduleView();
+  }
+
+  openScheduleModal(scheduleId = null, defaultDay = null) {
+    const schedule = scheduleId ? this.store.getSchedule(scheduleId) : null;
+    document.getElementById('schedule-modal-id').value = schedule ? schedule.id : '';
+
+    // Populate course dropdown
+    const courseSelect = document.getElementById('schedule-modal-course');
+    const courses = this.store.getCourses();
+    if (courses.length === 0) {
+      alert('Belum ada mata kuliah yang terdaftar. Tambahkan mata kuliah terlebih dahulu di sidebar.');
+      return;
+    }
+
+    // Populate datalist for lecturer suggestions from existing courses
+    const datalist = document.getElementById('schedule-lecturer-list');
+    if (datalist) {
+      const lecturers = [...new Set(courses.map(c => (c.dosen || '').trim()).filter(Boolean))];
+      datalist.innerHTML = lecturers.map(d => `<option value="${this.escapeHtml(d)}">`).join('');
+    }
+
+    // First option must be placeholder option, not immediately selecting a course
+    const placeholderOption = `<option value="" disabled ${!schedule ? 'selected' : ''}>-- Pilih Mata Kuliah --</option>`;
+    courseSelect.innerHTML = placeholderOption + courses.map(c => `
+      <option value="${c.id}" data-icon="fa-solid fa-${c.ikon || 'book'}" data-dot="${c.warna || '#2C5EF5'}">${this.escapeHtml(c.kode)} · ${this.escapeHtml(c.nama)} (${c.sks} SKS)</option>
+    `).join('');
+
+    if (schedule) {
+      courseSelect.value = schedule.course_id;
+      document.getElementById('schedule-modal-day').value = schedule.hari || 'Senin';
+      document.getElementById('schedule-modal-type').value = schedule.jenis || 'Kuliah';
+      document.getElementById('schedule-modal-start').value = (schedule.jam_mulai || '08:00').slice(0, 5);
+      document.getElementById('schedule-modal-end').value = (schedule.jam_selesai || '10:30').slice(0, 5);
+      document.getElementById('schedule-modal-room').value = schedule.ruangan || '';
+      
+      const course = this.store.getCourse(schedule.course_id);
+      document.getElementById('schedule-modal-lecturer').value = schedule.dosen || (course ? course.dosen : '') || '';
+      document.getElementById('schedule-modal-notes').value = schedule.keterangan || '';
+      document.getElementById('schedule-modal-reminder').checked = schedule.pengingat_aktif !== false;
+
+      document.getElementById('schedule-modal-title').textContent = 'Edit Jadwal Kuliah';
+      document.getElementById('schedule-modal-delete-btn').style.display = 'inline-flex';
+      document.getElementById('schedule-modal-submit-btn').textContent = 'Perbarui Jadwal';
+    } else {
+      courseSelect.value = '';
+      document.getElementById('schedule-modal-day').value = defaultDay || 'Senin';
+      document.getElementById('schedule-modal-type').value = 'Kuliah';
+      document.getElementById('schedule-modal-start').value = '08:00';
+      document.getElementById('schedule-modal-end').value = '10:30';
+      document.getElementById('schedule-modal-room').value = '';
+      document.getElementById('schedule-modal-lecturer').value = '';
+      document.getElementById('schedule-modal-notes').value = '';
+      document.getElementById('schedule-modal-reminder').checked = true;
+
+      document.getElementById('schedule-modal-title').textContent = 'Tambah Jadwal Kuliah';
+      document.getElementById('schedule-modal-delete-btn').style.display = 'none';
+      document.getElementById('schedule-modal-submit-btn').textContent = 'Simpan Jadwal';
+    }
+
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
+
+    this.openModal('schedule-modal');
+  }
+
+  onScheduleCourseChange() {
+    const courseId = document.getElementById('schedule-modal-course').value;
+    const lecturerInput = document.getElementById('schedule-modal-lecturer');
+    if (!courseId) {
+      lecturerInput.value = '';
+      return;
+    }
+    const course = this.store.getCourse(courseId);
+    if (course) {
+      // Integrasi otomatis: ambil data dosen dari mata kuliah yang dipilih
+      lecturerInput.value = course.dosen || '';
+    }
+  }
+
+  saveSchedule(e) {
+    e.preventDefault();
+    const id = document.getElementById('schedule-modal-id').value;
+    const course_id = document.getElementById('schedule-modal-course').value;
+    const hari = document.getElementById('schedule-modal-day').value;
+    const jenis = document.getElementById('schedule-modal-type').value;
+    const jam_mulai = document.getElementById('schedule-modal-start').value;
+    const jam_selesai = document.getElementById('schedule-modal-end').value;
+    const ruangan = document.getElementById('schedule-modal-room').value.trim();
+    let dosen = document.getElementById('schedule-modal-lecturer').value.trim();
+    const keterangan = document.getElementById('schedule-modal-notes').value.trim();
+    const pengingat_aktif = document.getElementById('schedule-modal-reminder').checked;
+
+    if (!course_id) {
+      this.showToast('Silakan pilih mata kuliah terlebih dahulu.', 'warning');
+      return;
+    }
+
+    if (!hari || !jam_mulai) {
+      this.showToast('Harap pilih hari dan jam mulai kuliah.', 'warning');
+      return;
+    }
+
+    // Jika dosen dikosongkan di form, otomatis isi dari data dosen mata kuliah
+    if (!dosen) {
+      const course = this.store.getCourse(course_id);
+      if (course && course.dosen) {
+        dosen = course.dosen;
+      }
+    }
+
+    if (id) {
+      this.store.updateSchedule(id, {
+        course_id, hari, jenis, jam_mulai, jam_selesai, ruangan, dosen, keterangan, pengingat_aktif
+      });
+      this.showToast('Jadwal kuliah berhasil diperbarui.', 'success');
+    } else {
+      this.store.addSchedule({
+        course_id, hari, jenis, jam_mulai, jam_selesai, ruangan, dosen, keterangan, pengingat_aktif
+      });
+      this.showToast('Jadwal kuliah baru berhasil ditambahkan.', 'success');
+    }
+
+    this.closeModal('schedule-modal');
+    this.renderSidebar();
+    if (this.currentView === 'schedule') {
+      this.renderScheduleView();
+    } else if (this.currentView === 'course' && this.activeCourseId === course_id) {
+      this.renderCourseView(course_id);
+    }
+  }
+
+  deleteScheduleConfirm(scheduleId) {
+    const sch = this.store.getSchedule(scheduleId);
+    const label = sch ? `${sch.hari} ${sch.jam_mulai}` : 'jadwal';
+    if (confirm(`Apakah Anda yakin ingin menghapus ${label}?`)) {
+      this.store.deleteSchedule(scheduleId);
+      this.showToast('Jadwal kuliah berhasil dihapus.', 'info');
+      this.renderSidebar();
+      if (this.currentView === 'schedule') {
+        this.renderScheduleView();
+      }
+    }
+  }
+
+  deleteScheduleFromModal() {
+    const id = document.getElementById('schedule-modal-id').value;
+    if (id) {
+      this.deleteScheduleConfirm(id);
+      this.closeModal('schedule-modal');
+    }
+  }
+
+  async testScheduleReminder(scheduleId) {
+    this.showToast('Mengirim pengingat Telegram...', 'info');
+    try {
+      const res = await fetch(`api.php?action=test_schedule_reminder&schedule_id=${encodeURIComponent(scheduleId)}&type=60m`);
+      const data = await res.json();
+      if (data.ok) {
+        this.showToast('Notifikasi pengingat jadwal berhasil terkirim ke Telegram!', 'success');
+      } else {
+        this.showToast(`Gagal kirim notifikasi Telegram: ${data.error || 'Periksa token bot'}`, 'error');
+      }
+    } catch (e) {
+      this.showToast(`Error koneksi Telegram: ${e.message}`, 'error');
+    }
+  }
+
+  async testScheduleReminderNow() {
+    const schedules = this.store.getSchedules ? this.store.getSchedules() : [];
+    if (schedules.length === 0) {
+      alert('Belum ada jadwal kuliah yang terdaftar. Tambahkan jadwal kuliah terlebih dahulu untuk mengetes notifikasi.');
+      return;
+    }
+    await this.testScheduleReminder(schedules[0].id);
   }
 
   // --- PROJECT MODAL ---
@@ -1713,22 +2577,34 @@ class App {
   }
 
   // --- TELEGRAM & SETTINGS ---
-  saveTelegramSettings(e) {
+  async saveTelegramSettings(e) {
     e.preventDefault();
     const token = document.getElementById('setting-tg-token').value.trim();
     const chatId = document.getElementById('setting-tg-chatid').value.trim();
     const enabled = document.getElementById('setting-tg-enabled').checked;
 
-    this.store.updateSettings({
+    const feedback = document.getElementById('tg-test-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Menyimpan pengaturan ke database...';
+    }
+
+    const res = await this.store.updateSettings({
       telegram_bot_token: token,
       telegram_chat_id: chatId,
       telegram_enabled: enabled
     });
 
-    const feedback = document.getElementById('tg-test-feedback');
     if (feedback) {
-      feedback.style.color = 'var(--color-tertiary)';
-      feedback.textContent = '✓ Pengaturan Telegram berhasil disimpan!';
+      if (res && res.ok !== false) {
+        feedback.style.color = 'var(--color-tertiary)';
+        feedback.textContent = '✓ Pengaturan Telegram berhasil disimpan permanen!';
+        this.showToast('Pengaturan Telegram berhasil disimpan.', 'success');
+      } else {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = '✕ Gagal menyimpan ke server: ' + (res?.error || 'Kesalahan koneksi');
+        this.showToast('Gagal menyimpan ke server database.', 'error');
+      }
     }
   }
 
@@ -1748,6 +2624,11 @@ class App {
       feedback.textContent = 'Memverifikasi bot ke server Telegram...';
     }
 
+    let bot = null;
+    let viaFallback = false;
+    let errorMsg = '';
+
+    // 1. Coba lewat proxy PHP backend terlebih dahulu
     try {
       const res = await fetch('api.php?action=check_telegram_bot', {
         method: 'POST',
@@ -1756,27 +2637,50 @@ class App {
       });
       const text = await res.text();
       let data = null;
-      try {
-        data = JSON.parse(text);
-      } catch (jsonErr) {
-        throw new Error(text.replace(/<[^>]*>?/gm, '').trim() || 'Respon server bukan format JSON');
-      }
-      if (data.ok && data.result) {
-        const bot = data.result;
-        if (feedback) {
-          feedback.style.color = 'var(--color-tertiary)';
-          feedback.innerHTML = `✓ Bot Valid: <b>${this.escapeHtml(bot.first_name)}</b> (<a href="https://t.me/${bot.username}" target="_blank" style="color:var(--color-tertiary); text-decoration:underline;">@${bot.username}</a>)`;
-        }
-      } else {
-        if (feedback) {
-          feedback.style.color = 'var(--color-danger)';
-          feedback.textContent = `✕ Token tidak valid: ${data.description || data.error || 'Periksa kembali token Anda.'}`;
-        }
+      try { data = JSON.parse(text); } catch (e) {}
+      if (data && data.ok && data.result) {
+        bot = data.result;
+      } else if (data && data.description) {
+        errorMsg = data.description;
+      } else if (data && data.error) {
+        errorMsg = data.error;
       }
     } catch (e) {
+      errorMsg = e.message;
+    }
+
+    // 2. Jika backend PHP timeout/gagal (misal hosting blokir koneksi keluar cURL),
+    // otomatis verifikasi langsung dari browser pengguna ke api.telegram.org (didukung resmi via CORS)
+    if (!bot) {
+      try {
+        if (feedback) {
+          feedback.textContent = 'Server hosting lambat/timeout. Mencoba verifikasi langsung dari browser...';
+        }
+        const directRes = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/getMe`, {
+          method: 'GET'
+        });
+        const directData = await directRes.json();
+        if (directData && directData.ok && directData.result) {
+          bot = directData.result;
+          viaFallback = true;
+        } else if (directData && directData.description) {
+          errorMsg = directData.description;
+        }
+      } catch (directErr) {
+        console.warn('Direct Telegram getMe also failed:', directErr);
+      }
+    }
+
+    if (bot) {
+      if (feedback) {
+        feedback.style.color = 'var(--color-tertiary)';
+        const note = viaFallback ? ' <span style="font-size: 0.72rem; color: var(--color-muted);">(Terverifikasi via browser)</span>' : '';
+        feedback.innerHTML = `✓ Bot Valid: <b>${this.escapeHtml(bot.first_name)}</b> (<a href="https://t.me/${bot.username}" target="_blank" style="color:var(--color-tertiary); text-decoration:underline;">@${bot.username}</a>)${note}`;
+      }
+    } else {
       if (feedback) {
         feedback.style.color = 'var(--color-danger)';
-        feedback.textContent = `✕ Gagal verifikasi: ${e.message}`;
+        feedback.textContent = `✕ Token tidak valid atau koneksi gagal: ${errorMsg || 'Periksa kembali token Anda atau koneksi internet.'}`;
       }
     }
   }
@@ -1797,6 +2701,12 @@ class App {
       feedback.textContent = 'Mendeteksi pesan masuk dari server Telegram...';
     }
 
+    let detectedChatId = null;
+    let detectedName = 'Pengguna';
+    let viaFallback = false;
+    let errorMsg = '';
+
+    // 1. Coba via proxy PHP backend
     try {
       const res = await fetch('api.php?action=get_telegram_updates', {
         method: 'POST',
@@ -1805,28 +2715,62 @@ class App {
       });
       const text = await res.text();
       let data = null;
-      try {
-        data = JSON.parse(text);
-      } catch (jsonErr) {
-        throw new Error(text.replace(/<[^>]*>?/gm, '').trim() || 'Respon server bukan format JSON');
-      }
-      if (data.ok && data.chat_id) {
-        document.getElementById('setting-tg-chatid').value = data.chat_id;
-        if (feedback) {
-          feedback.style.color = 'var(--color-tertiary)';
-          const name = data.first_name || data.username || 'Pengguna';
-          feedback.textContent = `✓ Chat ID terdeteksi: ${data.chat_id} (${name})`;
-        }
-      } else {
-        if (feedback) {
-          feedback.style.color = 'var(--color-danger)';
-          feedback.textContent = `✕ ${data.error || 'Chat ID tidak ditemukan.'}`;
-        }
+      try { data = JSON.parse(text); } catch (e) {}
+      if (data && data.ok && data.chat_id) {
+        detectedChatId = data.chat_id;
+        detectedName = data.first_name || data.username || 'Pengguna';
+      } else if (data && data.error) {
+        errorMsg = data.error;
       }
     } catch (e) {
+      errorMsg = e.message;
+    }
+
+    // 2. Fallback langsung dari browser jika backend timeout/gagal
+    if (!detectedChatId) {
+      try {
+        if (feedback) {
+          feedback.textContent = 'Server hosting lambat/timeout. Mencoba deteksi langsung dari browser...';
+        }
+        const directRes = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/getUpdates`, {
+          method: 'GET'
+        });
+        const directData = await directRes.json();
+        if (directData && directData.ok && Array.isArray(directData.result) && directData.result.length > 0) {
+          for (let i = directData.result.length - 1; i >= 0; i--) {
+            const u = directData.result[i];
+            const msg = u.message || u.edited_message || u.channel_post;
+            if (msg && msg.chat && msg.chat.id) {
+              detectedChatId = String(msg.chat.id);
+              detectedName = msg.chat.first_name || msg.chat.title || msg.chat.username || 'Pengguna';
+              viaFallback = true;
+              break;
+            }
+          }
+        } else if (directData && directData.description) {
+          errorMsg = directData.description;
+        }
+      } catch (directErr) {
+        console.warn('Direct Telegram getUpdates failed:', directErr);
+      }
+    }
+
+    if (detectedChatId) {
+      document.getElementById('setting-tg-chatid').value = detectedChatId;
+      // Simpan langsung token dan chat ID agar tidak hilang jika tab tertutup
+      this.store.updateSettings({
+        telegram_bot_token: token,
+        telegram_chat_id: detectedChatId
+      });
+      if (feedback) {
+        feedback.style.color = 'var(--color-tertiary)';
+        const note = viaFallback ? ' <span style="font-size: 0.72rem; color: var(--color-muted);">(Terdeteksi via browser)</span>' : '';
+        feedback.innerHTML = `✓ Chat ID terdeteksi: <b>${detectedChatId}</b> (${this.escapeHtml(detectedName)}) dan tersimpan otomatis!${note}`;
+      }
+    } else {
       if (feedback) {
         feedback.style.color = 'var(--color-danger)';
-        feedback.textContent = `✕ Gagal mendeteksi: ${e.message}`;
+        feedback.innerHTML = `✕ Chat ID tidak ditemukan. Pastikan Anda sudah membuka bot di Telegram dan menekan tombol <b>START</b> (atau kirim <code>/start</code>), lalu coba klik tombol deteksi ini lagi.`;
       }
     }
   }
@@ -1964,6 +2908,103 @@ class App {
     this.renderSidebar();
     this.renderTopStats();
     this.renderCurrentView();
+  }
+
+  handleRestoreFileSelected(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.sql')) {
+      this.showToastNotification('Format berkas harus berupa file berekstensi .sql');
+      event.target.value = '';
+      return;
+    }
+
+    this.selectedRestoreFile = file;
+
+    const sizeStr = file.size < 1024 
+      ? file.size + ' Bytes' 
+      : (file.size < 1024 * 1024 
+          ? (file.size / 1024).toFixed(1) + ' KB' 
+          : (file.size / (1024 * 1024)).toFixed(2) + ' MB');
+
+    const nameEl = document.getElementById('restore-file-name');
+    const sizeEl = document.getElementById('restore-file-size');
+    if (nameEl) nameEl.textContent = file.name;
+    if (sizeEl) sizeEl.textContent = 'Ukuran: ' + sizeStr + ' · Tipe: SQL Dump Berkas';
+
+    this.openModal('restore-sql-modal');
+  }
+
+  async submitRestoreSql() {
+    if (!this.selectedRestoreFile) {
+      this.showToastNotification('Silakan pilih berkas .sql terlebih dahulu.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-execute-restore-sql');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memulihkan Database...';
+    }
+
+    const feedback = document.getElementById('restore-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Mengunggah dan mengeksekusi berkas SQL ke database MySQL...';
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('sql_file', this.selectedRestoreFile);
+
+      const res = await fetch('api.php?action=restore_sql', {
+        method: 'POST',
+        body: formData,
+        cache: 'no-store'
+      });
+
+      const data = await res.json();
+      if (data && data.ok) {
+        this.closeModal('restore-sql-modal');
+        this.showToastNotification(data.message || 'Database berhasil dipulihkan!');
+        
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          feedback.textContent = '✓ ' + (data.message || 'Database berhasil dipulihkan!');
+        }
+
+        // Muat ulang seluruh store dari database relasional
+        await this.store.fetchFromBackend();
+        this.updateDbStatusUi();
+        this.renderSidebar();
+        this.renderTopStats();
+        this.renderCurrentView();
+      } else {
+        const errorMsg = (data && data.error) ? data.error : 'Terjadi kegagalan saat merestore database.';
+        alert('Gagal memulihkan database:\n' + errorMsg);
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = '✕ Gagal memulihkan database: ' + errorMsg;
+        }
+      }
+    } catch (err) {
+      console.error('Restore SQL error:', err);
+      alert('Terjadi kesalahan jaringan atau server saat merestore database:\n' + err.message);
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = '✕ Error: ' + err.message;
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+      const fileInput = document.getElementById('restore-sql-file-input');
+      if (fileInput) fileInput.value = '';
+      this.selectedRestoreFile = null;
+    }
   }
 
   async checkDbStatus() {

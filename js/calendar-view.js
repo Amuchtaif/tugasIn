@@ -170,11 +170,16 @@ class CalendarView {
 
     let chipsHtml = '';
     dayTasks.forEach(task => {
-      const course = this.store.getCourse(task.course_id);
+      const course = task.course_id ? this.store.getCourse(task.course_id) : null;
+      const project = task.project_id ? this.store.getProject(task.project_id) : null;
       const isOverdue = this.store.isTaskOverdue(task);
       const status = this.store.getStatus(task.status_id);
       const isCompleted = status ? status.apakah_selesai : false;
-      const borderCol = course ? course.warna : 'var(--color-border)';
+      const borderCol = course ? (course.warna || '#2C5EF5') : (project ? '#2563EB' : 'var(--color-border)');
+      const ownerLabel = course ? course.nama : (project ? 'Proyek: ' + project.nama : '');
+      const iconHtml = course 
+        ? `<i class="fa-solid fa-${course.ikon || 'book'}" style="font-size: 0.65rem; margin-right: 3px; color: ${borderCol};"></i>`
+        : (project ? `<i class="fa-solid fa-rocket" style="font-size: 0.65rem; margin-right: 3px; color: #2563EB;"></i>` : '');
 
       chipsHtml += `
         <div class="calendar-task-chip ${isOverdue ? 'overdue' : ''} ${isCompleted ? 'completed' : ''}"
@@ -182,8 +187,8 @@ class CalendarView {
              style="border-left: 3px solid ${borderCol}"
              ondragstart="window.calendarView.handleDragStart(event, '${task.id}')"
              onclick="event.stopPropagation(); window.app.openTaskDetail('${task.id}')"
-             title="${this.escapeHtml(task.judul)} (${course ? course.nama : ''})">
-          <span>${this.escapeHtml(task.judul)}</span>
+             title="${this.escapeHtml(task.judul)} (${ownerLabel})">
+          <span>${iconHtml}${this.escapeHtml(task.judul)}</span>
         </div>
       `;
     });

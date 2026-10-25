@@ -102,22 +102,22 @@ TugasIn mengisi celah ini: terstruktur sesuai kehidupan kampus, tetapi tetap fle
 
 ### 7.2 Task
 
-- FR-6: Task memiliki judul, deskripsi, status, prioritas, deadline (tanggal dan jam), mata kuliah, dan tag.
+- FR-6: Task memiliki judul, deskripsi, status, prioritas, deadline (tanggal dan jam), pemilik (tepat satu dari: mata kuliah atau project, saling eksklusif), dan tag.
 - FR-7: Task dapat dibuat cepat dari satu kolom input (quick add) dengan judul dan deadline.
-- FR-8: Pengguna dapat memindahkan task ke mata kuliah atau semester lain.
+- FR-8: Pengguna dapat memindahkan task ke mata kuliah lain (untuk tugas makul) atau ke project lain (untuk task project).
 - FR-9: Task yang melewati deadline dan belum selesai ditandai visual (overdue).
 - FR-10: Penghapusan bersifat *soft delete* dengan opsi pulihkan selama 30 hari.
 
 ### 7.3 Kanban
 
-- FR-11: Kolom kanban mengikuti daftar status mata kuliah.
+- FR-11: Kolom kanban mengikuti daftar status milik mata kuliah atau project yang sedang aktif.
 - FR-12: Kartu dapat dipindah antar kolom dan diurutkan lewat drag-and-drop.
 - FR-13: Perubahan posisi tersimpan otomatis dan langsung tercermin di List dan Kalender.
-- FR-14: Pengguna dapat menambah, mengganti nama, mengurutkan, dan menghapus kolom status.
+- FR-14: Pengguna dapat menambah, mengganti nama, mengurutkan, dan menghapus kolom status pada mata kuliah atau project tersebut.
 
 ### 7.4 Kalender
 
-- FR-15: Tampilan bulanan dan mingguan menampilkan task berdasarkan deadline, berwarna sesuai mata kuliah.
+- FR-15: Tampilan bulanan dan mingguan menampilkan task berdasarkan deadline, berwarna sesuai mata kuliah atau penanda project.
 - FR-16: Task dapat dipindah ke tanggal lain dengan drag-and-drop untuk mengubah deadline.
 - FR-17: Klik pada tanggal membuka form pembuatan task dengan deadline terisi.
 
@@ -134,7 +134,7 @@ TugasIn mengisi celah ini: terstruktur sesuai kehidupan kampus, tetapi tetap fle
 - FR-23: Pengguna dapat membuat properti kustom dengan tipe: teks, angka, tanggal, pilihan tunggal, multi-pilih, checkbox, URL.
 - FR-24: Properti kustom dapat ditampilkan, disembunyikan, difilter, dan digunakan untuk *grouping* di setiap view.
 - FR-25: Pengguna dapat menyimpan view dengan kombinasi filter, sorting, dan grouping.
-- FR-26: Pengguna dapat menyimpan mata kuliah sebagai template (status dan properti) untuk dipakai ulang.
+- FR-26: Pengguna dapat menyimpan mata kuliah atau project sebagai template (status dan properti) untuk dipakai ulang.
 
 ## 8. Kebutuhan Non-Fungsional
 
@@ -156,14 +156,15 @@ TugasIn mengisi celah ini: terstruktur sesuai kehidupan kampus, tetapi tetap fle
 | User | id, nama, email, zona waktu, pengaturan |
 | Semester | id, user_id, nama, tanggal_mulai, tanggal_selesai, warna, ikon, diarsipkan |
 | Course | id, semester_id, nama, kode, dosen, sks, warna, ikon, urutan |
-| Status | id, course_id, nama, warna, urutan, apakah_selesai |
-| Task | id, course_id, project_id (opsional), status_id, judul, deskripsi, prioritas, deadline, urutan, custom_values (JSONB), dihapus_pada |
-| CustomField | id, course_id, nama, tipe, opsi |
+| Project | id, user_id, nama, deskripsi, deadline, status |
+| Status | id, course_id, project_id (saling eksklusif: tepat satu terisi), nama, urutan, apakah_selesai |
+| Task | id, course_id, project_id (saling eksklusif: tepat satu terisi), status_id, judul, deskripsi, prioritas, deadline, urutan, custom_values (JSON), dihapus_pada |
+| CustomField | id, course_id, project_id (saling eksklusif), nama, tipe, opsi, urutan |
 | Subtask | id, task_id, judul, selesai |
 | Reminder | id, task_id, waktu_kirim, kanal, status_kirim |
 | Tag / TaskTag | id, nama, warna / relasi task-tag |
 
-Relasi inti: **User 1–N Semester 1–N Course 1–N Task**. Entitas Project (id, user_id, nama, deskripsi, deadline, status) berdiri terpisah dan terhubung ke Task lewat project_id opsional. Properti kustom disimpan sebagai definisi di `CustomField` dan nilainya di kolom JSONB pada `Task`.
+Relasi inti: Setiap Task bersifat salah satu: **Tugas Mata Kuliah** (Course 1–N Task) ATAU **Task Project** (Project 1–N Task). Status dan properti kustom terikat secara independen ke masing-masing Course atau Project (memiliki `course_id` atau `project_id` secara saling eksklusif).
 
 ## 10. Alur Utama Pengguna
 

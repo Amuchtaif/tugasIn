@@ -194,7 +194,7 @@ try {
         $courses = $coursesStmt->fetchAll();
 
         // Statuses
-        $statusesStmt = $db->query("SELECT id, nama, urutan, (apakah_selesai = 1) AS apakah_selesai FROM statuses ORDER BY urutan ASC");
+        $statusesStmt = $db->query("SELECT id, course_id, project_id, nama, urutan, (apakah_selesai = 1) AS apakah_selesai FROM statuses ORDER BY urutan ASC");
         $statuses = array_map(function($st) {
             $st['apakah_selesai'] = (bool)$st['apakah_selesai'];
             $st['urutan'] = (int)$st['urutan'];
@@ -374,6 +374,48 @@ try {
         $courseId = !empty($task['course_id']) ? $task['course_id'] : null;
         $projectId = !empty($task['project_id']) ? $task['project_id'] : null;
 
+        // TASK 4.1: Tolak jika mengirim course_id DAN project_id bersamaan, atau tidak mengirim keduanya
+        if (($courseId !== null && $projectId !== null) || ($courseId === null && $projectId === null)) {
+            http_response_code(400);
+            echo json_encode([
+                'ok' => false,
+                'error' => 'Task hanya boleh dimiliki satu mata kuliah atau satu project (tidak boleh keduanya atau kosong).'
+            ]);
+            exit;
+        }
+
+        // TASK 4.2 & 4.4: Validasi status_id milik mata kuliah atau project yang sama
+        if ($courseId !== null) {
+            $stCheck = $db->prepare("SELECT id FROM statuses WHERE id = :status_id AND course_id = :course_id");
+            $stCheck->execute([':status_id' => $task['status_id'] ?? '', ':course_id' => $courseId]);
+        } else {
+            $stCheck = $db->prepare("SELECT id FROM statuses WHERE id = :status_id AND project_id = :project_id");
+            $stCheck->execute([':status_id' => $task['status_id'] ?? '', ':project_id' => $projectId]);
+        }
+        $validStatus = $stCheck->fetchColumn();
+
+        if (!$validStatus) {
+            // Jika dipindah induk atau status tidak cocok, ambil status urutan pertama dari pemilik baru
+            if ($courseId !== null) {
+                $defaultStStmt = $db->prepare("SELECT id FROM statuses WHERE course_id = :course_id ORDER BY urutan ASC LIMIT 1");
+                $defaultStStmt->execute([':course_id' => $courseId]);
+            } else {
+                $defaultStStmt = $db->prepare("SELECT id FROM statuses WHERE project_id = :project_id ORDER BY urutan ASC LIMIT 1");
+                $defaultStStmt->execute([':project_id' => $projectId]);
+            }
+            $fallbackStatus = $defaultStStmt->fetchColumn();
+            if ($fallbackStatus) {
+                $task['status_id'] = $fallbackStatus;
+            } else {
+                http_response_code(400);
+                echo json_encode([
+                    'ok' => false,
+                    'error' => 'Status tidak valid untuk mata kuliah atau project yang dipilih.'
+                ]);
+                exit;
+            }
+        }
+
         $stmt = $db->prepare("
             INSERT INTO tasks (id, course_id, project_id, status_id, judul, deskripsi, prioritas, deadline, urutan, tags, custom_url, dihapus_pada)
             VALUES (:id, :course_id, :project_id, :status_id, :judul, :deskripsi, :prioritas, :deadline, :urutan, :tags, :custom_url, :dihapus_pada)
@@ -395,7 +437,7 @@ try {
             ':id' => $task['id'],
             ':course_id' => $courseId,
             ':project_id' => $projectId,
-            ':status_id' => $task['status_id'] ?: 'st_todo',
+            ':status_id' => $task['status_id'],
             ':judul' => $task['judul'],
             ':deskripsi' => $task['deskripsi'] ?? '',
             ':prioritas' => $task['prioritas'] ?? 'Sedang',
@@ -574,6 +616,20 @@ try {
             ':urutan' => (int)($crs['urutan'] ?? 1)
         ]);
 
+        // Pastikan mata kuliah memiliki status bawaan jika belum ada
+        $checkSt = $db->prepare("SELECT COUNT(*) FROM statuses WHERE course_id = :course_id");
+        $checkSt->execute([':course_id' => $crs['id']]);
+        if ((int)$checkSt->fetchColumn() === 0) {
+            $insertSt = $db->prepare("
+                INSERT INTO statuses (id, course_id, project_id, nama, urutan, apakah_selesai)
+                VALUES (:id, :course_id, NULL, :nama, :urutan, :apakah_selesai)
+            ");
+            $insertSt->execute([':id' => 'st_' . $crs['id'] . '_todo', ':course_id' => $crs['id'], ':nama' => 'Belum Mulai', ':urutan' => 0, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $crs['id'] . '_prog', ':course_id' => $crs['id'], ':nama' => 'Sedang Dikerjakan', ':urutan' => 1, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $crs['id'] . '_rev', ':course_id' => $crs['id'], ':nama' => 'Butuh Review', ':urutan' => 2, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $crs['id'] . '_done', ':course_id' => $crs['id'], ':nama' => 'Selesai', ':urutan' => 3, ':apakah_selesai' => 1]);
+        }
+
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -622,6 +678,20 @@ try {
             ':status' => $prj['status'] ?? 'Perencanaan'
         ]);
 
+        // Task 1.5: Saat project dibuat, buat status bawaan (Belum mulai, Dikerjakan, Review, Selesai)
+        $checkSt = $db->prepare("SELECT COUNT(*) FROM statuses WHERE project_id = :project_id");
+        $checkSt->execute([':project_id' => $prj['id']]);
+        if ((int)$checkSt->fetchColumn() === 0) {
+            $insertSt = $db->prepare("
+                INSERT INTO statuses (id, course_id, project_id, nama, urutan, apakah_selesai)
+                VALUES (:id, NULL, :project_id, :nama, :urutan, :apakah_selesai)
+            ");
+            $insertSt->execute([':id' => 'st_' . $prj['id'] . '_todo', ':project_id' => $prj['id'], ':nama' => 'Belum Mulai', ':urutan' => 0, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $prj['id'] . '_prog', ':project_id' => $prj['id'], ':nama' => 'Dikerjakan', ':urutan' => 1, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $prj['id'] . '_rev', ':project_id' => $prj['id'], ':nama' => 'Review', ':urutan' => 2, ':apakah_selesai' => 0]);
+            $insertSt->execute([':id' => 'st_' . $prj['id'] . '_done', ':project_id' => $prj['id'], ':nama' => 'Selesai', ':urutan' => 3, ':apakah_selesai' => 1]);
+        }
+
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -646,10 +716,21 @@ try {
             exit;
         }
 
+        $courseId = !empty($st['course_id']) ? $st['course_id'] : null;
+        $projectId = !empty($st['project_id']) ? $st['project_id'] : null;
+
+        if (($courseId !== null && $projectId !== null) || ($courseId === null && $projectId === null)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Status harus dimiliki tepat satu mata kuliah atau satu project.']);
+            exit;
+        }
+
         $stmt = $db->prepare("
-            INSERT INTO statuses (id, nama, urutan, apakah_selesai)
-            VALUES (:id, :nama, :urutan, :apakah_selesai)
+            INSERT INTO statuses (id, course_id, project_id, nama, urutan, apakah_selesai)
+            VALUES (:id, :course_id, :project_id, :nama, :urutan, :apakah_selesai)
             ON DUPLICATE KEY UPDATE
+                course_id = VALUES(course_id),
+                project_id = VALUES(project_id),
                 nama = VALUES(nama),
                 urutan = VALUES(urutan),
                 apakah_selesai = VALUES(apakah_selesai)
@@ -657,6 +738,8 @@ try {
 
         $stmt->execute([
             ':id' => $st['id'],
+            ':course_id' => $courseId,
+            ':project_id' => $projectId,
             ':nama' => $st['nama'],
             ':urutan' => (int)($st['urutan'] ?? 0),
             ':apakah_selesai' => !empty($st['apakah_selesai']) ? 1 : 0
@@ -669,6 +752,27 @@ try {
     if ($action === 'delete_status') {
         $input = getJsonInput();
         $id = $input['id'] ?? ($_GET['id'] ?? '');
+
+        // Validasi minimal harus ada 1 status tersisa untuk pemilik status tersebut
+        $ownerStmt = $db->prepare("SELECT course_id, project_id FROM statuses WHERE id = :id");
+        $ownerStmt->execute([':id' => $id]);
+        $owner = $ownerStmt->fetch();
+
+        if ($owner) {
+            if ($owner['course_id'] !== null) {
+                $countStmt = $db->prepare("SELECT COUNT(*) FROM statuses WHERE course_id = :course_id");
+                $countStmt->execute([':course_id' => $owner['course_id']]);
+            } else {
+                $countStmt = $db->prepare("SELECT COUNT(*) FROM statuses WHERE project_id = :project_id");
+                $countStmt->execute([':project_id' => $owner['project_id']]);
+            }
+            if ((int)$countStmt->fetchColumn() <= 1) {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Kolom status minimal harus tersisa satu.']);
+                exit;
+            }
+        }
+
         $stmt = $db->prepare("DELETE FROM statuses WHERE id = :id");
         $stmt->execute([':id' => $id]);
         echo json_encode(['ok' => true]);
@@ -1316,16 +1420,23 @@ try {
         // 3. Statuses
         if (!empty($payload['statuses'])) {
             $stStmt = $db->prepare("
-                INSERT INTO statuses (id, nama, urutan, apakah_selesai)
-                VALUES (:id, :nama, :urutan, :apakah_selesai)
+                INSERT INTO statuses (id, course_id, project_id, nama, urutan, apakah_selesai)
+                VALUES (:id, :course_id, :project_id, :nama, :urutan, :apakah_selesai)
                 ON DUPLICATE KEY UPDATE
+                    course_id = VALUES(course_id),
+                    project_id = VALUES(project_id),
                     nama = VALUES(nama),
                     urutan = VALUES(urutan),
                     apakah_selesai = VALUES(apakah_selesai)
             ");
             foreach ($payload['statuses'] as $st) {
+                $cId = !empty($st['course_id']) ? $st['course_id'] : null;
+                $pId = !empty($st['project_id']) ? $st['project_id'] : null;
+                if ($cId === null && $pId === null) continue;
                 $stStmt->execute([
                     ':id' => $st['id'],
+                    ':course_id' => $cId,
+                    ':project_id' => $pId,
                     ':nama' => $st['nama'],
                     ':urutan' => (int)($st['urutan'] ?? 0),
                     ':apakah_selesai' => !empty($st['apakah_selesai']) ? 1 : 0
@@ -1460,15 +1571,8 @@ try {
         $db->exec("DELETE FROM `schedules`;");
         $db->exec("DELETE FROM `schedule_reminder_logs`;");
         
-        // Tetap sediakan 4 status dasar Kanban agar pembuatan tugas baru tetap valid
+        // Statuses akan dibuat otomatis saat mata kuliah atau proyek baru dibuat
         $db->exec("DELETE FROM `statuses`;");
-        $db->exec("
-            INSERT INTO `statuses` (`id`, `nama`, `urutan`, `apakah_selesai`) VALUES
-            ('st_todo', 'Belum Mulai', 0, 0),
-            ('st_prog', 'Sedang Dikerjakan', 1, 0),
-            ('st_rev', 'Butuh Review', 2, 0),
-            ('st_done', 'Selesai', 3, 1);
-        ");
 
         // Reset settings ke nilai default bawaan
         $db->exec("DELETE FROM `settings`;");

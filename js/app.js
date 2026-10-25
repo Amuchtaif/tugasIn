@@ -54,6 +54,8 @@ class App {
     this.searchQuery = '';
     this.filterPriority = '';
     this.filterStatus = '';
+    this.filterTaskType = ''; // '', 'course', 'project'
+    this.quickAddType = 'course'; // 'course' | 'project'
 
     // Schedule view filters & state
     this.scheduleFilterDay = 'all';
@@ -245,6 +247,15 @@ class App {
     if (!window.CustomSelect) return;
 
     // 1. Toolbar filters
+    CustomSelect.enhance('#filter-task-type', {
+      size: 'sm',
+      placeholder: 'Semua Jenis Task',
+      onChange: (val) => {
+        this.filterTaskType = val;
+        this.renderCurrentView();
+      }
+    });
+
     CustomSelect.enhance('#filter-priority', {
       size: 'sm',
       placeholder: 'Semua Prioritas',
@@ -270,6 +281,12 @@ class App {
       placeholder: 'Pilih Mata Kuliah'
     });
 
+    CustomSelect.enhance('#qa-project', {
+      size: 'md',
+      searchable: true,
+      placeholder: 'Pilih Proyek'
+    });
+
     CustomSelect.enhance('#qa-status', {
       size: 'md',
       placeholder: 'Pilih Status Awal'
@@ -280,17 +297,17 @@ class App {
       placeholder: 'Pilih Prioritas'
     });
 
-    CustomSelect.enhance('#qa-project', {
-      size: 'md',
-      searchable: true,
-      placeholder: '(Opsional) Tanpa Proyek'
-    });
-
     // 3. Edit Task Modal Selects
     CustomSelect.enhance('#edit-task-course', {
       size: 'md',
       searchable: true,
       placeholder: 'Pilih Mata Kuliah'
+    });
+
+    CustomSelect.enhance('#edit-task-project', {
+      size: 'md',
+      searchable: true,
+      placeholder: 'Pilih Proyek'
     });
 
     CustomSelect.enhance('#edit-task-status', {
@@ -671,66 +688,107 @@ class App {
     // Highlight active nav items
     document.querySelectorAll('.sidebar-nav-item').forEach(el => {
       el.classList.remove('active');
-      if (el.dataset.view === this.currentView && !this.activeCourseId) {
+      if (el.dataset.view === this.currentView && !this.activeCourseId && !this.activeProjectId) {
         el.classList.add('active');
       }
     });
 
     // Render Semesters & Courses Tree
     const treeContainer = document.getElementById('semester-tree-container');
-    if (!treeContainer) return;
-
-    let treeHtml = '';
-    semesters.forEach(sem => {
-      const courses = this.store.getCourses(sem.id);
-      treeHtml += `
-        <div class="semester-block">
-          <div class="semester-header" onclick="window.app.toggleSemesterCollapse('${sem.id}')">
-            <div class="semester-title">
-              <i class="fa-solid fa-graduation-cap" style="color: ${sem.warna || 'var(--color-primary)'}; font-size: 0.85rem;"></i>
-              <span>${this.escapeHtml(sem.nama)}</span>
+    if (treeContainer) {
+      let treeHtml = '';
+      semesters.forEach(sem => {
+        const courses = this.store.getCourses(sem.id);
+        treeHtml += `
+          <div class="semester-block">
+            <div class="semester-header" onclick="window.app.toggleSemesterCollapse('${sem.id}')">
+              <div class="semester-title">
+                <i class="fa-solid fa-graduation-cap" style="color: ${sem.warna || 'var(--color-primary)'}; font-size: 0.85rem;"></i>
+                <span>${this.escapeHtml(sem.nama)}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openSemesterModal('${sem.id}')" title="Pengaturan Semester">
+                  <i class="fa-solid fa-gear"></i>
+                </button>
+              </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 4px;">
-              <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openSemesterModal('${sem.id}')" title="Pengaturan Semester">
-                <i class="fa-solid fa-gear"></i>
-              </button>
-            </div>
-          </div>
-          <div class="semester-courses" id="courses_of_${sem.id}">
-      `;
+            <div class="semester-courses" id="courses_of_${sem.id}">
+        `;
 
-      courses.forEach(course => {
-        const courseTasks = activeTasks.filter(t => t.course_id === course.id);
-        const isActive = this.currentView === 'course' && this.activeCourseId === course.id;
-        const iconName = course.ikon || 'book';
+        courses.forEach(course => {
+          const courseTasks = activeTasks.filter(t => t.course_id === course.id);
+          const isActive = this.currentView === 'course' && this.activeCourseId === course.id;
+          const iconName = course.ikon || 'book';
+
+          treeHtml += `
+            <div class="course-item ${isActive ? 'active' : ''}" onclick="window.app.navigateTo('course', { courseId: '${course.id}' })">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+                <i class="fa-solid fa-${iconName}" style="color: ${course.warna || 'var(--color-secondary)'}; font-size: 0.75rem; width: 14px; text-align: center;"></i>
+                <span class="course-code-tag">${this.escapeHtml(course.kode)}</span>
+                <span>${this.escapeHtml(course.nama)}</span>
+              </div>
+              <div class="course-actions">
+                <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openCourseModal('${course.id}')" title="Edit Mata Kuliah">
+                  <i class="fa-solid fa-pen-to-square"></i>
+                </button>
+              </div>
+              <span class="nav-counter">${courseTasks.length}</span>
+            </div>
+          `;
+        });
 
         treeHtml += `
-          <div class="course-item ${isActive ? 'active' : ''}" onclick="window.app.navigateTo('course', { courseId: '${course.id}' })">
-            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
-              <i class="fa-solid fa-${iconName}" style="color: ${course.warna || 'var(--color-secondary)'}; font-size: 0.75rem; width: 14px; text-align: center;"></i>
-              <span class="course-code-tag">${this.escapeHtml(course.kode)}</span>
-              <span>${this.escapeHtml(course.nama)}</span>
-            </div>
-            <div class="course-actions">
-              <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openCourseModal('${course.id}')" title="Edit Mata Kuliah">
-                <i class="fa-solid fa-pen-to-square"></i>
+              <button class="btn btn-ghost btn-sm" style="width: 100%; justify-content: flex-start; margin-top: 4px; color: var(--color-muted);" onclick="window.app.openCourseModal(null, '${sem.id}')">
+                <i class="fa-solid fa-plus"></i> Mata Kuliah
               </button>
             </div>
-            <span class="nav-counter">${courseTasks.length}</span>
           </div>
         `;
       });
 
-      treeHtml += `
-            <button class="btn btn-ghost btn-sm" style="width: 100%; justify-content: flex-start; margin-top: 4px; color: var(--color-muted);" onclick="window.app.openCourseModal(null, '${sem.id}')">
-              <i class="fa-solid fa-plus"></i> Mata Kuliah
-            </button>
+      treeContainer.innerHTML = treeHtml;
+    }
+
+    // Render Projects Tree (Task 3.1)
+    const projectTreeContainer = document.getElementById('project-tree-container');
+    if (projectTreeContainer) {
+      const projects = this.store.getProjects ? this.store.getProjects() : [];
+      let projHtml = '';
+
+      // Link: "Semua Proyek" (Overview grid)
+      const isAllProjectsActive = this.currentView === 'project' && !this.activeProjectId;
+      projHtml += `
+        <div class="course-item ${isAllProjectsActive ? 'active' : ''}" onclick="window.app.navigateTo('project')">
+          <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+            <i class="fa-solid fa-list-check" style="color: var(--color-tertiary); font-size: 0.75rem; width: 14px; text-align: center;"></i>
+            <span>Semua Proyek</span>
           </div>
+          <span class="nav-counter">${projects.length}</span>
         </div>
       `;
-    });
 
-    treeContainer.innerHTML = treeHtml;
+      projects.forEach(p => {
+        const pTasks = activeTasks.filter(t => t.project_id === p.id);
+        const isActive = this.currentView === 'project' && this.activeProjectId === p.id;
+
+        projHtml += `
+          <div class="course-item ${isActive ? 'active' : ''}" onclick="window.app.navigateTo('project', { projectId: '${p.id}' })">
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+              <i class="fa-solid fa-rocket" style="color: #2563EB; font-size: 0.75rem; width: 14px; text-align: center;"></i>
+              <span style="overflow: hidden; text-overflow: ellipsis;">${this.escapeHtml(p.nama)}</span>
+            </div>
+            <div class="course-actions">
+              <button class="btn btn-ghost btn-icon-sm" onclick="event.stopPropagation(); window.app.openProjectModal('${p.id}')" title="Edit Proyek">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+            </div>
+            <span class="nav-counter">${pTasks.length}</span>
+          </div>
+        `;
+      });
+
+      projectTreeContainer.innerHTML = projHtml;
+    }
   }
 
   toggleSemesterCollapse(semId) {
@@ -953,20 +1011,32 @@ class App {
       }
     }
 
+    // Adjust filter-task-type visibility (only show on global views)
+    const filterTypeEl = document.getElementById('filter-task-type');
+    const filterTypeWrapper = filterTypeEl ? (filterTypeEl.closest('.cs-wrapper') || filterTypeEl) : null;
+    if (filterTypeWrapper) {
+      if (['today', 'all'].includes(this.currentView)) {
+        filterTypeWrapper.style.display = '';
+        filterOptions.taskType = this.filterTaskType || '';
+      } else {
+        filterTypeWrapper.style.display = 'none';
+      }
+    }
+
     if (this.currentView === 'today') {
       if (titleEl) titleEl.textContent = 'Hari Ini & Minggu Ini';
       if (subtitleEl) subtitleEl.textContent = 'Tugas Aktif';
       if (toolbar) toolbar.style.display = 'flex';
       filterOptions.dueThisWeekOnly = true;
       const tasks = this.store.getTasks(filterOptions);
-      this.renderViewContainer(tasks);
+      this.renderViewContainer(tasks, {});
 
     } else if (this.currentView === 'all') {
       if (titleEl) titleEl.textContent = 'Semua Tugas';
-      if (subtitleEl) subtitleEl.textContent = 'Seluruh Mata Kuliah';
+      if (subtitleEl) subtitleEl.textContent = 'Seluruh Mata Kuliah & Proyek';
       if (toolbar) toolbar.style.display = 'flex';
       const tasks = this.store.getTasks(filterOptions);
-      this.renderViewContainer(tasks);
+      this.renderViewContainer(tasks, {});
 
     } else if (this.currentView === 'schedule') {
       if (titleEl) titleEl.textContent = 'Jadwal Kuliah Mingguan';
@@ -986,9 +1056,14 @@ class App {
                 </span>
                 <span>${this.escapeHtml(course.kode)} · ${this.escapeHtml(course.nama)}</span>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="window.app.openCourseModal('${course.id}')">
-                <i class="fa-solid fa-pen-to-square"></i> Edit Mata Kuliah
-              </button>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" onclick="window.app.openCourseModal('${course.id}')">
+                  <i class="fa-solid fa-pen-to-square"></i> Edit Mata Kuliah
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="window.app.openQuickAddModalWithCourse('${course.id}')">
+                  <i class="fa-solid fa-plus"></i> Tambah Tugas
+                </button>
+              </div>
             </div>
           `;
         } else {
@@ -999,13 +1074,50 @@ class App {
       if (toolbar) toolbar.style.display = 'flex';
       filterOptions.courseId = this.activeCourseId;
       const tasks = this.store.getTasks(filterOptions);
-      this.renderViewContainer(tasks);
+      this.renderViewContainer(tasks, { courseId: this.activeCourseId });
 
     } else if (this.currentView === 'project') {
-      if (titleEl) titleEl.textContent = 'Proyek & Tugas Besar';
-      if (subtitleEl) subtitleEl.textContent = 'Rencana Kerja';
-      if (toolbar) toolbar.style.display = 'none';
-      this.renderProjectsView();
+      if (this.activeProjectId) {
+        const project = this.store.getProject(this.activeProjectId);
+        if (project) {
+          if (titleEl) {
+            titleEl.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: rgba(37, 99, 235, 0.15); color: #2563EB; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem;">
+                    <i class="fa-solid fa-rocket"></i>
+                  </span>
+                  <span>${this.escapeHtml(project.nama)}</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" onclick="window.app.openProjectModal('${project.id}')">
+                    <i class="fa-solid fa-pen-to-square"></i> Edit Proyek
+                  </button>
+                  <button class="btn btn-primary btn-sm" onclick="window.app.openQuickAddModalWithProject('${project.id}')">
+                    <i class="fa-solid fa-plus"></i> Tambah Task
+                  </button>
+                </div>
+              </div>
+            `;
+          }
+          if (subtitleEl) {
+            const dlStr = project.deadline ? new Date(project.deadline).toLocaleDateString('id-ID') : '-';
+            subtitleEl.textContent = `Proyek / Tugas Besar · Status: ${project.status || 'Aktif'} · Target Selesai: ${dlStr}`;
+          }
+          if (toolbar) toolbar.style.display = 'flex';
+          filterOptions.projectId = this.activeProjectId;
+          const tasks = this.store.getTasks(filterOptions);
+          this.renderViewContainer(tasks, { projectId: this.activeProjectId });
+        } else {
+          this.activeProjectId = null;
+          this.renderProjectsView();
+        }
+      } else {
+        if (titleEl) titleEl.textContent = 'Proyek & Tugas Besar';
+        if (subtitleEl) subtitleEl.textContent = 'Rencana Kerja & Tugas Terukur';
+        if (toolbar) toolbar.style.display = 'none';
+        this.renderProjectsView();
+      }
 
     } else if (this.currentView === 'archive') {
       if (titleEl) titleEl.textContent = 'Arsip Semester';
@@ -1027,11 +1139,11 @@ class App {
     }
   }
 
-  renderViewContainer(tasks) {
+  renderViewContainer(tasks, context = {}) {
     if (this.viewMode === 'list') {
       this.listView.render(tasks);
     } else if (this.viewMode === 'kanban') {
-      this.kanbanView.render(tasks);
+      this.kanbanView.render(tasks, context);
     } else if (this.viewMode === 'calendar') {
       this.calendarView.render(tasks);
     }
@@ -1075,13 +1187,16 @@ class App {
       const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
       html += `
-        <div class="card" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="card" style="display: flex; flex-direction: column; gap: 14px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;" onclick="window.app.navigateTo('project', { projectId: '${p.id}' })">
           <div style="display: flex; align-items: flex-start; justify-content: space-between;">
             <div>
               <span class="mono-label" style="color: var(--color-tertiary);">${p.status || 'Aktif'}</span>
-              <div class="h3" style="margin-top: 4px;">${this.escapeHtml(p.nama)}</div>
+              <div class="h3" style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-rocket" style="color: #2563EB; font-size: 0.95rem;"></i>
+                <span>${this.escapeHtml(p.nama)}</span>
+              </div>
             </div>
-            <div style="display: flex; gap: 4px;">
+            <div style="display: flex; gap: 4px;" onclick="event.stopPropagation();">
               <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openProjectModal('${p.id}')" title="Edit Proyek"><i class="fa-solid fa-pen-to-square"></i></button>
               <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteProjectConfirm('${p.id}')" title="Hapus Proyek"><i class="fa-solid fa-trash-can"></i></button>
             </div>
@@ -1100,9 +1215,12 @@ class App {
             </div>
           </div>
 
-          <div style="border-top: 1px solid var(--color-border); padding-top: 12px; display: flex; align-items: center; justify-content: space-between;">
+          <div style="border-top: 1px solid var(--color-border); padding-top: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;" onclick="event.stopPropagation();">
             <span class="mono-label">Deadline: ${p.deadline ? new Date(p.deadline).toLocaleDateString('id-ID') : '-'}</span>
-            <button class="btn btn-secondary btn-sm" onclick="window.app.openQuickAddModalWithProject('${p.id}')"><i class="fa-solid fa-plus"></i> Tambah Task</button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-secondary btn-sm" onclick="window.app.openQuickAddModalWithProject('${p.id}')"><i class="fa-solid fa-plus"></i> Tambah Task</button>
+              <button class="btn btn-primary btn-sm" onclick="window.app.navigateTo('project', { projectId: '${p.id}' })"><i class="fa-solid fa-arrow-right"></i> Buka</button>
+            </div>
           </div>
         </div>
       `;
@@ -1834,9 +1952,19 @@ class App {
 
   // --- STATUS ACTIONS (KANBAN) ---
   addNewStatusPrompt() {
+    let owner = {};
+    if (this.currentView === 'course' && this.activeCourseId) {
+      owner.courseId = this.activeCourseId;
+    } else if (this.currentView === 'project' && this.activeProjectId) {
+      owner.projectId = this.activeProjectId;
+    } else {
+      alert('Pilih halaman Mata Kuliah atau Proyek tertentu terlebih dahulu untuk menambah kolom status kanban.');
+      return;
+    }
+
     const name = prompt('Masukkan nama kolom status baru:');
     if (name && name.trim()) {
-      this.store.addStatus(name.trim(), false);
+      this.store.addStatus(name.trim(), false, owner);
     }
   }
 
@@ -1848,17 +1976,32 @@ class App {
   }
 
   deleteStatusConfirm(statusId) {
+    const status = this.store.getStatus(statusId);
+    if (!status) return;
+
     if (confirm('Hapus kolom status ini? Task di kolom ini akan dipindah ke kolom pertama.')) {
-      const remaining = this.store.getStatuses().filter(s => s.id !== statusId);
-      if (remaining.length > 0) {
-        // Move tasks to first remaining status
-        this.store.getTasks().forEach(t => {
-          if (t.status_id === statusId) {
-            this.store.updateTask(t.id, { status_id: remaining[0].id });
-          }
-        });
-        this.store.deleteStatus(statusId);
+      let ownerStatuses = [];
+      if (status.course_id) {
+        ownerStatuses = this.store.getStatusesForCourse(status.course_id);
+      } else if (status.project_id) {
+        ownerStatuses = this.store.getStatusesForProject(status.project_id);
+      } else {
+        ownerStatuses = this.store.getStatuses();
       }
+
+      const remaining = ownerStatuses.filter(s => s.id !== statusId);
+      if (remaining.length === 0) {
+        alert('Tidak dapat menghapus status terakhir dari mata kuliah/proyek ini.');
+        return;
+      }
+
+      // Move tasks to first remaining status
+      this.store.getTasks().forEach(t => {
+        if (t.status_id === statusId) {
+          this.store.updateTask(t.id, { status_id: remaining[0].id });
+        }
+      });
+      this.store.deleteStatus(statusId);
     }
   }
 
@@ -1884,7 +2027,77 @@ class App {
 
   // --- QUICK ADD MODAL ---
   openQuickAddModal() {
+    if (this.currentView === 'course' && this.activeCourseId) {
+      this.openQuickAddModalWithCourse(this.activeCourseId);
+      return;
+    }
+    if (this.currentView === 'project' && this.activeProjectId) {
+      this.openQuickAddModalWithProject(this.activeProjectId);
+      return;
+    }
+
+    // Global context: show type selector
+    const typeSelector = document.getElementById('qa-type-selection');
+    if (typeSelector) typeSelector.style.display = 'block';
+
     this.populateQuickAddForm();
+    this.setQuickAddType(this.quickAddType || 'course');
+    this.openModal('quick-add-modal');
+    setTimeout(() => {
+      const input = document.getElementById('qa-title');
+      if (input) input.focus();
+    }, 100);
+  }
+
+  openQuickAddModalWithCourse(courseId) {
+    this.quickAddType = 'course';
+    const typeSelector = document.getElementById('qa-type-selection');
+    if (typeSelector) typeSelector.style.display = 'none';
+
+    this.populateQuickAddForm();
+    const course = this.store.getCourse(courseId);
+    const subtitle = document.getElementById('qa-context-subtitle');
+    if (subtitle) {
+      subtitle.textContent = course ? `Menambah tugas di: ${course.kode} - ${course.nama}` : 'Menambah Tugas Mata Kuliah';
+    }
+
+    const courseSelect = document.getElementById('qa-course');
+    if (courseSelect) courseSelect.value = courseId;
+
+    const courseGroup = document.getElementById('qa-course-group');
+    if (courseGroup) courseGroup.style.display = 'block';
+    const projectGroup = document.getElementById('qa-project-group');
+    if (projectGroup) projectGroup.style.display = 'none';
+
+    this.refreshQuickAddStatuses('course', courseId);
+    this.openModal('quick-add-modal');
+    setTimeout(() => {
+      const input = document.getElementById('qa-title');
+      if (input) input.focus();
+    }, 100);
+  }
+
+  openQuickAddModalWithProject(projectId) {
+    this.quickAddType = 'project';
+    const typeSelector = document.getElementById('qa-type-selection');
+    if (typeSelector) typeSelector.style.display = 'none';
+
+    this.populateQuickAddForm();
+    const project = this.store.getProject(projectId);
+    const subtitle = document.getElementById('qa-context-subtitle');
+    if (subtitle) {
+      subtitle.textContent = project ? `Menambah task di: ${project.nama}` : 'Menambah Task Project';
+    }
+
+    const projSelect = document.getElementById('qa-project');
+    if (projSelect) projSelect.value = projectId;
+
+    const courseGroup = document.getElementById('qa-course-group');
+    if (courseGroup) courseGroup.style.display = 'none';
+    const projectGroup = document.getElementById('qa-project-group');
+    if (projectGroup) projectGroup.style.display = 'block';
+
+    this.refreshQuickAddStatuses('project', projectId);
     this.openModal('quick-add-modal');
     setTimeout(() => {
       const input = document.getElementById('qa-title');
@@ -1893,7 +2106,14 @@ class App {
   }
 
   openQuickAddModalWithStatus(statusId) {
-    this.openQuickAddModal();
+    const status = this.store.getStatus(statusId);
+    if (status && status.project_id) {
+      this.openQuickAddModalWithProject(status.project_id);
+    } else if (status && status.course_id) {
+      this.openQuickAddModalWithCourse(status.course_id);
+    } else {
+      this.openQuickAddModal();
+    }
     const statusSelect = document.getElementById('qa-status');
     if (statusSelect) {
       statusSelect.value = statusId;
@@ -1907,12 +2127,77 @@ class App {
     if (deadlineInput) deadlineInput.value = `${dateStr}T23:59`;
   }
 
-  openQuickAddModalWithProject(projectId) {
-    this.openQuickAddModal();
-    const projSelect = document.getElementById('qa-project');
-    if (projSelect) {
-      projSelect.value = projectId;
-      if (window.CustomSelect) window.CustomSelect.syncAll();
+  setQuickAddType(type) {
+    this.quickAddType = type;
+    const btnCourse = document.getElementById('qa-type-btn-course');
+    const btnProject = document.getElementById('qa-type-btn-project');
+    const courseGroup = document.getElementById('qa-course-group');
+    const projectGroup = document.getElementById('qa-project-group');
+    const subtitle = document.getElementById('qa-context-subtitle');
+
+    if (type === 'course') {
+      if (btnCourse) {
+        btnCourse.classList.add('btn-primary');
+        btnCourse.classList.remove('btn-secondary');
+      }
+      if (btnProject) {
+        btnProject.classList.remove('btn-primary');
+        btnProject.classList.add('btn-secondary');
+      }
+      if (courseGroup) courseGroup.style.display = 'block';
+      if (projectGroup) projectGroup.style.display = 'none';
+      if (subtitle) subtitle.textContent = 'Menambah Tugas Mata Kuliah';
+
+      const courseId = document.getElementById('qa-course') ? document.getElementById('qa-course').value : null;
+      this.refreshQuickAddStatuses('course', courseId);
+    } else {
+      if (btnProject) {
+        btnProject.classList.add('btn-primary');
+        btnProject.classList.remove('btn-secondary');
+      }
+      if (btnCourse) {
+        btnCourse.classList.remove('btn-primary');
+        btnCourse.classList.add('btn-secondary');
+      }
+      if (courseGroup) courseGroup.style.display = 'none';
+      if (projectGroup) projectGroup.style.display = 'block';
+      if (subtitle) subtitle.textContent = 'Menambah Task Project';
+
+      const projectId = document.getElementById('qa-project') ? document.getElementById('qa-project').value : null;
+      this.refreshQuickAddStatuses('project', projectId);
+    }
+
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
+    }
+  }
+
+  onQuickAddOwnerChange() {
+    if (this.quickAddType === 'course') {
+      const courseId = document.getElementById('qa-course') ? document.getElementById('qa-course').value : null;
+      this.refreshQuickAddStatuses('course', courseId);
+    } else {
+      const projectId = document.getElementById('qa-project') ? document.getElementById('qa-project').value : null;
+      this.refreshQuickAddStatuses('project', projectId);
+    }
+  }
+
+  refreshQuickAddStatuses(type, ownerId) {
+    const statusSelect = document.getElementById('qa-status');
+    if (!statusSelect) return;
+
+    let statuses = [];
+    if (type === 'course' && ownerId) {
+      statuses = this.store.getStatusesForCourse(ownerId);
+    } else if (type === 'project' && ownerId) {
+      statuses = this.store.getStatusesForProject(ownerId);
+    } else {
+      statuses = this.store.getStatuses();
+    }
+
+    statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
+    if (window.CustomSelect) {
+      window.CustomSelect.syncAll();
     }
   }
 
@@ -1925,19 +2210,11 @@ class App {
       if (this.activeCourseId) courseSelect.value = this.activeCourseId;
     }
 
-    // Statuses
-    const statusSelect = document.getElementById('qa-status');
-    if (statusSelect) {
-      const statuses = this.store.getStatuses();
-      statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
-    }
-
     // Projects
     const projSelect = document.getElementById('qa-project');
     if (projSelect) {
       const projects = this.store.getProjects();
-      projSelect.innerHTML = '<option value="">(Opsional) Tanpa Proyek</option>' +
-        projects.map(p => `<option value="${p.id}" data-dot="#2563EB">${this.escapeHtml(p.nama)}</option>`).join('');
+      projSelect.innerHTML = projects.map(p => `<option value="${p.id}" data-dot="#2563EB">${this.escapeHtml(p.nama)}</option>`).join('');
       if (this.activeProjectId) projSelect.value = this.activeProjectId;
     }
 
@@ -1965,24 +2242,39 @@ class App {
     const title = document.getElementById('qa-title').value.trim();
     if (!title) return;
 
-    const courseId = document.getElementById('qa-course').value;
+    let courseId = null;
+    let projectId = null;
+
+    if (this.quickAddType === 'course') {
+      courseId = document.getElementById('qa-course').value || null;
+      if (!courseId) {
+        this.showToastNotification('Silakan pilih mata kuliah terlebih dahulu');
+        return;
+      }
+    } else {
+      projectId = document.getElementById('qa-project').value || null;
+      if (!projectId) {
+        this.showToastNotification('Silakan pilih proyek terlebih dahulu');
+        return;
+      }
+    }
+
     const statusId = document.getElementById('qa-status').value;
     const priority = document.getElementById('qa-priority').value;
     const deadlineVal = document.getElementById('qa-deadline').value;
-    const projectId = document.getElementById('qa-project').value || null;
-
     const deadline = deadlineVal ? new Date(deadlineVal).toISOString() : '';
 
     this.store.addTask({
       judul: title,
       course_id: courseId,
+      project_id: projectId,
       status_id: statusId,
       prioritas: priority,
-      deadline: deadline,
-      project_id: projectId
+      deadline: deadline
     });
 
     this.closeModal('quick-add-modal');
+    this.showToastNotification(`Task "${title}" berhasil ditambahkan`);
   }
 
   // --- TASK DETAIL MODAL ---
@@ -1996,15 +2288,49 @@ class App {
     document.getElementById('edit-task-title').value = task.judul;
     document.getElementById('edit-task-desc').value = task.deskripsi || '';
 
-    // Course
+    // Context & Exclusive Ownership Display (Task 2.5 & 2.6)
+    const ownerBadge = document.getElementById('task-modal-owner-badge');
+    const courseGroup = document.getElementById('edit-task-course-group');
+    const projectGroup = document.getElementById('edit-task-project-group');
     const courseSelect = document.getElementById('edit-task-course');
-    const courses = this.store.getCourses();
-    courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" data-badge="${this.escapeHtml(c.kode)}" ${c.id === task.course_id ? 'selected' : ''}>${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
-
-    // Status
+    const projSelect = document.getElementById('edit-task-project');
     const statusSelect = document.getElementById('edit-task-status');
-    const statuses = this.store.getStatuses();
-    statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
+
+    if (task.course_id) {
+      const course = this.store.getCourse(task.course_id);
+      if (ownerBadge) {
+        ownerBadge.innerHTML = `<span class="badge" style="background: ${course?.warna || '#2C5EF5'}20; color: ${course?.warna || '#2C5EF5'}; border: 1px solid ${course?.warna || '#2C5EF5'}40;"><i class="fa-solid fa-graduation-cap"></i> Tugas Mata Kuliah: ${this.escapeHtml(course?.nama || '-')}</span>`;
+      }
+      if (courseGroup) courseGroup.style.display = 'block';
+      if (projectGroup) projectGroup.style.display = 'none';
+
+      const courses = this.store.getCourses();
+      if (courseSelect) {
+        courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" data-badge="${this.escapeHtml(c.kode)}" ${c.id === task.course_id ? 'selected' : ''}>${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
+      }
+
+      const statuses = this.store.getStatusesForCourse(task.course_id);
+      if (statusSelect) {
+        statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
+      }
+    } else {
+      const project = this.store.getProject(task.project_id);
+      if (ownerBadge) {
+        ownerBadge.innerHTML = `<span class="badge" style="background: rgba(37, 99, 235, 0.15); color: #2563EB; border: 1px solid rgba(37, 99, 235, 0.35);"><i class="fa-solid fa-rocket"></i> Task Project: ${this.escapeHtml(project?.nama || '-')}</span>`;
+      }
+      if (courseGroup) courseGroup.style.display = 'none';
+      if (projectGroup) projectGroup.style.display = 'block';
+
+      const projects = this.store.getProjects();
+      if (projSelect) {
+        projSelect.innerHTML = projects.map(p => `<option value="${p.id}" data-dot="#2563EB" ${p.id === task.project_id ? 'selected' : ''}>${this.escapeHtml(p.nama)}</option>`).join('');
+      }
+
+      const statuses = this.store.getStatusesForProject(task.project_id);
+      if (statusSelect) {
+        statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
+      }
+    }
 
     // Priority
     document.getElementById('edit-task-priority').value = task.prioritas || 'Sedang';
@@ -2045,6 +2371,26 @@ class App {
     this.renderTaskAttachments(task);
 
     this.openModal('task-detail-modal');
+  }
+
+  onEditTaskCourseChange() {
+    const courseId = document.getElementById('edit-task-course').value;
+    const statusSelect = document.getElementById('edit-task-status');
+    if (statusSelect) {
+      const statuses = this.store.getStatusesForCourse(courseId);
+      statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
+    }
+    if (window.CustomSelect) window.CustomSelect.syncAll();
+  }
+
+  onEditTaskProjectChange() {
+    const projectId = document.getElementById('edit-task-project').value;
+    const statusSelect = document.getElementById('edit-task-status');
+    if (statusSelect) {
+      const statuses = this.store.getStatusesForProject(projectId);
+      statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
+    }
+    if (window.CustomSelect) window.CustomSelect.syncAll();
   }
 
   renderSubtasksEditor(subtasks) {
@@ -2115,11 +2461,13 @@ class App {
     e.preventDefault();
     if (!this.activeEditingTaskId) return;
 
+    const task = this.store.getTask(this.activeEditingTaskId);
+    if (!task) return;
+
     const title = document.getElementById('edit-task-title').value.trim();
     if (!title) return;
 
     const desc = document.getElementById('edit-task-desc').value;
-    const courseId = document.getElementById('edit-task-course').value;
     const statusId = document.getElementById('edit-task-status').value;
     const priority = document.getElementById('edit-task-priority').value;
     const deadlineVal = document.getElementById('edit-task-deadline').value;
@@ -2129,10 +2477,19 @@ class App {
     const tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean);
     const deadline = deadlineVal ? new Date(deadlineVal).toISOString() : '';
 
+    let courseId = null;
+    let projectId = null;
+    if (task.course_id) {
+      courseId = document.getElementById('edit-task-course').value || task.course_id;
+    } else {
+      projectId = document.getElementById('edit-task-project').value || task.project_id;
+    }
+
     this.store.updateTask(this.activeEditingTaskId, {
       judul: title,
       deskripsi: desc,
       course_id: courseId,
+      project_id: projectId,
       status_id: statusId,
       prioritas: priority,
       deadline: deadline,
@@ -2141,6 +2498,7 @@ class App {
     });
 
     this.closeModal('task-detail-modal');
+    this.showToastNotification('Perubahan task berhasil disimpan');
   }
 
   deleteTaskFromModal() {

@@ -445,9 +445,32 @@ class Store {
   }
 
   // --- STATUSES ---
-  getStatuses() {
+  getStatuses(filter = {}) {
     if (!this.data.statuses) return [];
-    return [...this.data.statuses].sort((a, b) => a.urutan - b.urutan);
+    let list = [...this.data.statuses];
+    if (filter.courseId) {
+      list = list.filter(s => s.course_id === filter.courseId);
+    } else if (filter.projectId) {
+      list = list.filter(s => s.project_id === filter.projectId);
+    }
+    return list.sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+  }
+
+  getStatusesForCourse(courseId) {
+    if (!courseId) return [];
+    return this.getStatuses({ courseId });
+  }
+
+  getStatusesForProject(projectId) {
+    if (!projectId) return [];
+    return this.getStatuses({ projectId });
+  }
+
+  getStatusesForTask(task) {
+    if (!task) return [];
+    if (task.course_id) return this.getStatusesForCourse(task.course_id);
+    if (task.project_id) return this.getStatusesForProject(task.project_id);
+    return [];
   }
 
   getStatus(id) {
@@ -455,13 +478,19 @@ class Store {
     return this.data.statuses.find(s => s.id === id);
   }
 
-  addStatus(nama, isDone = false) {
+  addStatus(nama, isDone = false, owner = {}) {
+    const courseId = owner.courseId || null;
+    const projectId = owner.projectId || null;
+    const existing = courseId ? this.getStatusesForCourse(courseId) : (projectId ? this.getStatusesForProject(projectId) : []);
     const newStatus = {
-      id: 'st_' + Date.now(),
+      id: 'st_' + (courseId ? 'crs_' : 'prj_') + Date.now(),
+      course_id: courseId,
+      project_id: projectId,
       nama,
-      urutan: this.data.statuses.length,
+      urutan: existing.length,
       apakah_selesai: isDone
     };
+    if (!this.data.statuses) this.data.statuses = [];
     this.data.statuses.push(newStatus);
     this.save();
     this.sendToBackend('save_status', newStatus);
@@ -478,7 +507,10 @@ class Store {
   }
 
   deleteStatus(id) {
-    if (this.data.statuses.length <= 1) return; // Prevent deleting all statuses
+    const st = this.getStatus(id);
+    if (!st) return;
+    const ownerStatuses = st.course_id ? this.getStatusesForCourse(st.course_id) : this.getStatusesForProject(st.project_id);
+    if (ownerStatuses.length <= 1) return; // Minimal harus ada 1 status tersisa untuk pemilik ini
     this.data.statuses = this.data.statuses.filter(s => s.id !== id);
     this.save();
     this.sendToBackend('delete_status', { id });
@@ -494,6 +526,13 @@ class Store {
       list = list.filter(t => t.dihapus_pada !== null && t.dihapus_pada !== undefined);
     } else {
       list = list.filter(t => t.dihapus_pada === null || t.dihapus_pada === undefined);
+    }
+
+    // Task Type filter (Mata Kuliah vs Project)
+    if (filterOptions.taskType === 'course') {
+      list = list.filter(t => Boolean(t.course_id));
+    } else if (filterOptions.taskType === 'project') {
+      list = list.filter(t => Boolean(t.project_id));
     }
 
     if (filterOptions.courseId) {
@@ -554,14 +593,36 @@ class Store {
   }
 
   addTask(task) {
-    const defaultCourseId = (this.data.courses && this.data.courses[0]) ? this.data.courses[0].id : '';
-    const defaultStatusId = (this.data.statuses && this.data.statuses[0]) ? this.data.statuses[0].id : 'st_todo';
+    let courseId = task.course_id || null;
+    let projectId = task.project_id || null;
+
+    if (!courseId && !projectId) {
+      // Default to first course if available
+      courseId = (this.data.courses && this.data.courses[0]) ? this.data.courses[0].id : null;
+    }
+    if (courseId && projectId) {
+      // Saling eksklusif: jika courseId ada, hapus projectId
+      projectId = null;
+    }
+
+    // Ambil daftar status milik pemilik ini
+    let ownerStatuses = [];
+    if (courseId) {
+      ownerStatuses = this.getStatusesForCourse(courseId);
+    } else if (projectId) {
+      ownerStatuses = this.getStatusesForProject(projectId);
+    }
+
+    let statusId = task.status_id;
+    if (!statusId || !ownerStatuses.some(s => s.id === statusId)) {
+      statusId = ownerStatuses.length > 0 ? ownerStatuses[0].id : 'st_todo';
+    }
 
     const newTask = {
       id: 'tsk_' + Date.now(),
-      course_id: task.course_id || defaultCourseId,
-      project_id: task.project_id || null,
-      status_id: task.status_id || defaultStatusId,
+      course_id: courseId,
+      project_id: projectId,
+      status_id: statusId,
       judul: task.judul || 'Task Baru',
       deskripsi: task.deskripsi || '',
       prioritas: task.prioritas || 'Sedang',
@@ -584,7 +645,28 @@ class Store {
   updateTask(id, fields) {
     const idx = this.data.tasks.findIndex(t => t.id === id);
     if (idx !== -1) {
-      this.data.tasks[idx] = { ...this.data.tasks[idx], ...fields };
+      const current = this.data.tasks[idx];
+      let updated = { ...current, ...fields };
+
+      // Pastikan saling eksklusif (Task 1.2 & 4.1)
+      if (fields.course_id) {
+        updated.course_id = fields.course_id;
+        updated.project_id = null;
+      } else if (fields.project_id) {
+        updated.project_id = fields.project_id;
+        updated.course_id = null;
+      }
+
+      // Validasi status_id sesuai pemilik (Task 4.2 & 4.4)
+      const ownerStatuses = updated.course_id 
+        ? this.getStatusesForCourse(updated.course_id) 
+        : this.getStatusesForProject(updated.project_id);
+
+      if (ownerStatuses.length > 0 && !ownerStatuses.some(s => s.id === updated.status_id)) {
+        updated.status_id = ownerStatuses[0].id;
+      }
+
+      this.data.tasks[idx] = updated;
       this.save();
       this.sendToBackend('save_task', this.data.tasks[idx]);
       return this.data.tasks[idx];
@@ -632,12 +714,16 @@ class Store {
     const task = this.getTask(id);
     if (!task) return;
     const currentStatus = this.getStatus(task.status_id);
+    const ownerStatuses = task.course_id 
+      ? this.getStatusesForCourse(task.course_id) 
+      : this.getStatusesForProject(task.project_id);
+
     if (currentStatus && currentStatus.apakah_selesai) {
-      const nonDone = this.data.statuses.find(s => !s.apakah_selesai);
-      task.status_id = nonDone ? nonDone.id : 'st_todo';
+      const nonDone = ownerStatuses.find(s => !s.apakah_selesai) || ownerStatuses[0];
+      if (nonDone) task.status_id = nonDone.id;
     } else {
-      const doneStatus = this.data.statuses.find(s => s.apakah_selesai);
-      task.status_id = doneStatus ? doneStatus.id : 'st_done';
+      const doneStatus = ownerStatuses.find(s => s.apakah_selesai) || ownerStatuses[ownerStatuses.length - 1];
+      if (doneStatus) task.status_id = doneStatus.id;
     }
     this.save();
     this.sendToBackend('save_task', task);

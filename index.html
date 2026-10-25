@@ -76,12 +76,6 @@
             </div>
             <span class="nav-counter" id="side-count-schedule">0</span>
           </div>
-          <div class="nav-item sidebar-nav-item" data-view="project" onclick="window.app.navigateTo('project')">
-            <div class="nav-item-left">
-              <i class="fa-solid fa-rocket" style="width: 16px; text-align: center;"></i>
-              <span>Proyek & Tugas Besar</span>
-            </div>
-          </div>
           <div class="nav-item sidebar-nav-item" data-view="archive" onclick="window.app.navigateTo('archive')">
             <div class="nav-item-left">
               <i class="fa-solid fa-box-archive" style="width: 16px; text-align: center;"></i>
@@ -97,7 +91,7 @@
           </div>
         </div>
 
-        <!-- Semesters and Courses Tree -->
+        <!-- Semesters and Courses Tree (Task 3.1) -->
         <div>
           <div class="nav-section-title">
             <span>SEMESTER & MATA KULIAH</span>
@@ -107,6 +101,20 @@
             </button>
           </div>
           <div id="semester-tree-container" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- Projects Section (Separated Task 3.1) -->
+        <div style="margin-top: 14px;">
+          <div class="nav-section-title">
+            <span>PROYEK & TUGAS BESAR</span>
+            <button class="btn btn-ghost btn-icon-sm" onclick="window.app.openProjectModal()"
+              title="Tambah Proyek Baru">
+              <i class="fa-solid fa-plus"></i>
+            </button>
+          </div>
+          <div id="project-tree-container" style="display: flex; flex-direction: column; gap: 4px;">
             <!-- Dynamically populated -->
           </div>
         </div>
@@ -268,6 +276,13 @@
 
           <!-- Filters -->
           <div class="filter-group">
+            <select id="filter-task-type" class="filter-select"
+              onchange="window.app.filterTaskType = this.value; window.app.renderCurrentView();">
+              <option value="">Semua Jenis Task</option>
+              <option value="course">🎓 Tugas Mata Kuliah</option>
+              <option value="project">🚀 Task Project</option>
+            </select>
+
             <select id="filter-priority" class="filter-select"
               onchange="window.app.filterPriority = this.value; window.app.renderCurrentView();">
               <option value="">Semua Prioritas</option>
@@ -280,17 +295,17 @@
             <select id="filter-status" class="filter-select"
               onchange="window.app.filterStatus = this.value; window.app.renderCurrentView();">
               <option value="">Semua Status</option>
-              <option value="st_todo">Belum Mulai</option>
-              <option value="st_prog">Sedang Dikerjakan</option>
-              <option value="st_rev">Butuh Review</option>
-              <option value="st_done">Selesai</option>
+              <option value="todo">Belum Mulai</option>
+              <option value="prog">Sedang Dikerjakan / Dikerjakan</option>
+              <option value="rev">Butuh Review / Review</option>
+              <option value="done">Selesai</option>
             </select>
           </div>
         </div>
 
         <!-- Quick Add inline field -->
         <form class="quick-add-bar"
-          onsubmit="event.preventDefault(); const inp = this.querySelector('input'); if(inp.value.trim()) { window.store.addTask({ judul: inp.value.trim() }); inp.value = ''; }">
+          onsubmit="window.app.handleInlineQuickAdd(event, this)">
           <span class="mono-label" style="color: var(--color-tertiary);"><i class="fa-solid fa-plus"></i></span>
           <input type="text" class="quick-add-input" placeholder="Quick add: ketik judul tugas dan tekan Enter...">
           <span class="mono-label" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
@@ -311,23 +326,46 @@
   <div id="quick-add-modal" class="modal-overlay">
     <div class="modal-dialog">
       <div class="modal-header">
-        <div class="h2">Tambah Task Cepat</div>
+        <div>
+          <div class="h2" id="qa-modal-title">Tambah Task Cepat</div>
+          <div id="qa-context-subtitle" class="mono-label" style="color: var(--color-tertiary); font-size: 0.78rem; margin-top: 2px;"></div>
+        </div>
         <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('quick-add-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form onsubmit="window.app.submitQuickAdd(event)">
         <div class="modal-body">
+          <!-- Type Selection for Global Context (Task 2.4) -->
+          <div id="qa-type-selection" class="form-group">
+            <label class="form-label">Jenis Task *</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="qa-type-btn-course" onclick="window.app.setQuickAddType('course')" style="justify-content: center; font-weight: 600;">
+                <i class="fa-solid fa-graduation-cap"></i> Tugas Mata Kuliah
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="qa-type-btn-project" onclick="window.app.setQuickAddType('project')" style="justify-content: center; font-weight: 600;">
+                <i class="fa-solid fa-rocket"></i> Task Project
+              </button>
+            </div>
+          </div>
+
           <div class="form-group">
-            <label class="form-label">Judul Tugas *</label>
+            <label class="form-label">Judul Task *</label>
             <input type="text" id="qa-title" required placeholder="Contoh: Laporan Praktikum 3 Basis Data" autofocus>
           </div>
 
           <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Mata Kuliah</label>
-              <select id="qa-course"></select>
+            <!-- Course Selector (Task 2.1) -->
+            <div class="form-group" id="qa-course-group">
+              <label class="form-label" id="qa-course-label">Mata Kuliah *</label>
+              <select id="qa-course" onchange="window.app.onQuickAddOwnerChange()"></select>
             </div>
+            <!-- Project Selector (Task 2.2) -->
+            <div class="form-group" id="qa-project-group" style="display: none;">
+              <label class="form-label" id="qa-project-label">Proyek *</label>
+              <select id="qa-project" onchange="window.app.onQuickAddOwnerChange()"></select>
+            </div>
+            <!-- Status Selector (Task 2.3) -->
             <div class="form-group">
-              <label class="form-label">Status Awal</label>
+              <label class="form-label">Status Awal *</label>
               <select id="qa-status"></select>
             </div>
           </div>
@@ -347,11 +385,6 @@
               <input type="datetime-local" id="qa-deadline">
             </div>
           </div>
-
-          <div class="form-group">
-            <label class="form-label">Tautkan ke Proyek (Opsional)</label>
-            <select id="qa-project"></select>
-          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary"
@@ -366,14 +399,17 @@
   <div id="task-detail-modal" class="modal-overlay">
     <div class="modal-dialog modal-dialog-large">
       <div class="modal-header">
-        <div class="h2" id="task-modal-title"
-          style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
+        <div>
+          <div class="h2" id="task-modal-title"
+            style="max-width: 580px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Detail Task</div>
+          <div id="task-modal-owner-badge" style="margin-top: 4px;"></div>
+        </div>
         <button class="btn btn-ghost btn-icon-sm" onclick="window.app.closeModal('task-detail-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <form onsubmit="window.app.saveTaskDetail(event)">
         <div class="modal-body">
           <div class="form-group">
-            <label class="form-label">Judul Tugas</label>
+            <label class="form-label">Judul Task</label>
             <input type="text" id="edit-task-title" required>
           </div>
 
@@ -384,9 +420,13 @@
           </div>
 
           <div class="form-row-3">
-            <div class="form-group">
+            <div class="form-group" id="edit-task-course-group">
               <label class="form-label">Mata Kuliah</label>
-              <select id="edit-task-course"></select>
+              <select id="edit-task-course" onchange="window.app.onEditTaskCourseChange()"></select>
+            </div>
+            <div class="form-group" id="edit-task-project-group" style="display: none;">
+              <label class="form-label">Proyek</label>
+              <select id="edit-task-project" onchange="window.app.onEditTaskProjectChange()"></select>
             </div>
             <div class="form-group">
               <label class="form-label">Status</label>

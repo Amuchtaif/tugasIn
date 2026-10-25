@@ -14,17 +14,46 @@ class KanbanView {
     window.kanbanView = this;
   }
 
-  render(tasks) {
+  render(tasks, context = {}) {
     if (!this.container) return;
+    this.currentContext = context || {};
 
-    const statuses = this.store.getStatuses();
+    let statuses = [];
+    let isGlobal = false;
+
+    if (context.courseId) {
+      statuses = this.store.getStatusesForCourse(context.courseId);
+    } else if (context.projectId) {
+      statuses = this.store.getStatusesForProject(context.projectId);
+    } else {
+      isGlobal = true;
+      statuses = [
+        { id: 'group_todo', nama: 'Belum Mulai', isDone: false, matchKeywords: ['belum', 'todo', 'backlog'] },
+        { id: 'group_prog', nama: 'Sedang Dikerjakan', isDone: false, matchKeywords: ['kerja', 'prog', 'doing', 'proses'] },
+        { id: 'group_rev',  nama: 'Butuh Review', isDone: false, matchKeywords: ['rev', 'tinjau', 'evaluasi'] },
+        { id: 'group_done', nama: 'Selesai', isDone: true, matchKeywords: ['selesai', 'done', 'closed'] }
+      ];
+    }
+
     let html = '<div class="kanban-board">';
 
     statuses.forEach(status => {
       // Sort tasks by sequential urutan
-      const colTasks = (tasks || [])
-        .filter(t => t.status_id === status.id)
-        .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+      let colTasks = [];
+      if (isGlobal) {
+        colTasks = (tasks || []).filter(t => {
+          const st = this.store.getStatus(t.status_id);
+          const stName = st ? st.nama.toLowerCase() : '';
+          const isDone = st ? st.apakah_selesai : false;
+          if (status.id === 'group_done') return isDone;
+          if (isDone) return false;
+          return status.matchKeywords.some(kw => stName.includes(kw));
+        }).sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+      } else {
+        colTasks = (tasks || [])
+          .filter(t => t.status_id === status.id)
+          .sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
+      }
 
       html += `
         <div class="kanban-column" 
@@ -36,16 +65,18 @@ class KanbanView {
               <span>${this.escapeHtml(status.nama)}</span>
               <span class="kanban-col-count">${colTasks.length}</span>
             </div>
-            <div style="display: flex; gap: 4px; align-items: center;">
-              <button class="btn btn-ghost btn-icon-sm" onclick="window.app.editStatusPrompt('${status.id}', '${this.escapeHtml(status.nama)}')" title="Ubah Nama Kolom">
-                <i class="fa-solid fa-pen"></i>
-              </button>
-              ${statuses.length > 1 ? `
-                <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteStatusConfirm('${status.id}')" title="Hapus Kolom">
-                  <i class="fa-solid fa-xmark"></i>
+            ${!isGlobal ? `
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <button class="btn btn-ghost btn-icon-sm" onclick="window.app.editStatusPrompt('${status.id}', '${this.escapeHtml(status.nama)}')" title="Ubah Nama Kolom">
+                  <i class="fa-solid fa-pen"></i>
                 </button>
-              ` : ''}
-            </div>
+                ${statuses.length > 1 ? `
+                  <button class="btn btn-ghost btn-icon-sm" onclick="window.app.deleteStatusConfirm('${status.id}')" title="Hapus Kolom">
+                    <i class="fa-solid fa-xmark"></i>
+                  </button>
+                ` : ''}
+              </div>
+            ` : ''}
           </div>
 
           <div class="kanban-card-list" 
@@ -61,26 +92,35 @@ class KanbanView {
 
       html += `
           </div>
-          <button class="kanban-add-card-btn" onclick="window.app.openQuickAddModalWithStatus('${status.id}')">
-            <i class="fa-solid fa-plus"></i> Tambah task di sini
-          </button>
+          ${!isGlobal ? `
+            <button class="kanban-add-card-btn" onclick="window.app.openQuickAddModalWithStatus('${status.id}')">
+              <i class="fa-solid fa-plus"></i> Tambah task di sini
+            </button>
+          ` : `
+            <button class="kanban-add-card-btn" onclick="window.app.openQuickAddModal()">
+              <i class="fa-solid fa-plus"></i> Tambah task
+            </button>
+          `}
         </div>
       `;
     });
 
-    // Add new status column button
-    html += `
-      <button class="kanban-add-col-btn" onclick="window.app.addNewStatusPrompt()">
-        <i class="fa-solid fa-plus"></i> Tambah Kolom Status
-      </button>
-    `;
+    // Add new status column button (only in course/project view)
+    if (!isGlobal) {
+      html += `
+        <button class="kanban-add-col-btn" onclick="window.app.addNewStatusPrompt()">
+          <i class="fa-solid fa-plus"></i> Tambah Kolom Status
+        </button>
+      `;
+    }
 
     html += '</div>';
     this.container.innerHTML = html;
   }
 
   renderCard(task) {
-    const course = this.store.getCourse(task.course_id);
+    const course = task.course_id ? this.store.getCourse(task.course_id) : null;
+    const project = task.project_id ? this.store.getProject(task.project_id) : null;
     const isOverdue = this.store.isTaskOverdue(task);
     const status = this.store.getStatus(task.status_id);
     const isCompleted = status ? status.apakah_selesai : false;
@@ -134,9 +174,15 @@ class KanbanView {
         <div class="kanban-card-header">
           ${course ? `
             <span class="course-badge" style="border-left: 2px solid ${course.warna || 'var(--color-border)'}">
+              <i class="fa-solid fa-${course.ikon || 'book'}" style="font-size: 0.72rem; margin-right: 3px;"></i>
               ${this.escapeHtml(course.kode)}
             </span>
-          ` : '<span class="mono-label">Umum</span>'}
+          ` : (project ? `
+            <span class="project-badge" style="border-left: 2px solid #2563EB; background: rgba(37, 99, 235, 0.08); padding: 2px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 500; color: #2563EB; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="fa-solid fa-rocket" style="font-size: 0.68rem;"></i>
+              ${this.escapeHtml(project.nama.length > 16 ? project.nama.substring(0, 14) + '...' : project.nama)}
+            </span>
+          ` : '<span class="mono-label">Umum</span>')}
 
           <span class="priority-badge ${prioClass}">
             <span class="priority-dot"></span>
@@ -247,6 +293,34 @@ class KanbanView {
     }
   }
 
+  resolveDropStatus(taskId, targetStatusId) {
+    if (!targetStatusId) return null;
+    if (targetStatusId.startsWith('group_')) {
+      const task = this.store.getTask(taskId);
+      if (task) {
+        const ownerStatuses = task.course_id 
+          ? this.store.getStatusesForCourse(task.course_id) 
+          : this.store.getStatusesForProject(task.project_id);
+        if (ownerStatuses.length === 0) return null;
+
+        if (targetStatusId === 'group_todo') {
+          const s = ownerStatuses.find(st => !st.apakah_selesai && (st.nama.toLowerCase().includes('belum') || st.nama.toLowerCase().includes('todo')));
+          return s ? s.id : ownerStatuses[0].id;
+        } else if (targetStatusId === 'group_prog') {
+          const s = ownerStatuses.find(st => !st.apakah_selesai && (st.nama.toLowerCase().includes('kerja') || st.nama.toLowerCase().includes('prog') || st.nama.toLowerCase().includes('doing')));
+          return s ? s.id : (ownerStatuses[1] ? ownerStatuses[1].id : ownerStatuses[0].id);
+        } else if (targetStatusId === 'group_rev') {
+          const s = ownerStatuses.find(st => !st.apakah_selesai && (st.nama.toLowerCase().includes('rev') || st.nama.toLowerCase().includes('tinjau') || st.nama.toLowerCase().includes('review')));
+          return s ? s.id : (ownerStatuses[2] ? ownerStatuses[2].id : ownerStatuses[0].id);
+        } else if (targetStatusId === 'group_done') {
+          const s = ownerStatuses.find(st => st.apakah_selesai);
+          return s ? s.id : ownerStatuses[ownerStatuses.length - 1].id;
+        }
+      }
+    }
+    return targetStatusId;
+  }
+
   handleDrop(event, fallbackStatusId) {
     event.preventDefault();
     event.stopPropagation();
@@ -260,8 +334,11 @@ class KanbanView {
     const taskId = (event.dataTransfer && event.dataTransfer.getData('text/plain')) || this.draggedTaskId;
 
     if (taskId && targetStatusId) {
-      const dropIndex = listEl ? this.getDropIndex(listEl, event.clientY).index : 0;
-      this.store.reorderTask(taskId, targetStatusId, dropIndex);
+      const finalStatusId = this.resolveDropStatus(taskId, targetStatusId);
+      if (finalStatusId) {
+        const dropIndex = listEl ? this.getDropIndex(listEl, event.clientY).index : 0;
+        this.store.reorderTask(taskId, finalStatusId, dropIndex);
+      }
     }
 
     this.draggedTaskId = null;
@@ -357,9 +434,12 @@ class KanbanView {
       const column = targetEl?.closest('.kanban-column');
       if (column) {
         const statusId = column.getAttribute('data-status-id');
-        const list = column.querySelector('.kanban-card-list');
-        const dropIndex = list ? this.getDropIndex(list, touch.clientY).index : 0;
-        this.store.reorderTask(this.touchData.taskId, statusId, dropIndex);
+        const finalStatusId = this.resolveDropStatus(this.touchData.taskId, statusId);
+        if (finalStatusId) {
+          const list = column.querySelector('.kanban-card-list');
+          const dropIndex = list ? this.getDropIndex(list, touch.clientY).index : 0;
+          this.store.reorderTask(this.touchData.taskId, finalStatusId, dropIndex);
+        }
       }
     }
 

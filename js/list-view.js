@@ -27,25 +27,40 @@ class ListView {
 
     let groups = {};
     if (groupBy === 'status') {
-      const statuses = this.store.getStatuses();
-      statuses.forEach(s => groups[s.id] = { title: s.nama, isDone: s.apakah_selesai, items: [] });
+      // Group by canonical status columns for clean unified presentation
+      groups = {
+        'todo': { title: 'Belum Mulai', isDone: false, items: [] },
+        'prog': { title: 'Sedang Dikerjakan / Dikerjakan', isDone: false, items: [] },
+        'rev':  { title: 'Butuh Review / Review', isDone: false, items: [] },
+        'done': { title: 'Selesai', isDone: true, items: [] }
+      };
       tasks.forEach(t => {
-        if (groups[t.status_id]) {
-          groups[t.status_id].items.push(t);
+        const st = this.store.getStatus(t.status_id);
+        const stName = st ? st.nama.toLowerCase() : '';
+        const isDone = st ? st.apakah_selesai : false;
+        if (isDone) {
+          groups['done'].items.push(t);
+        } else if (stName.includes('kerja') || stName.includes('prog') || stName.includes('doing')) {
+          groups['prog'].items.push(t);
+        } else if (stName.includes('rev') || stName.includes('tinjau')) {
+          groups['rev'].items.push(t);
         } else {
-          if (!groups['other']) groups['other'] = { title: 'Lainnya', isDone: false, items: [] };
-          groups['other'].items.push(t);
+          groups['todo'].items.push(t);
         }
       });
     } else if (groupBy === 'course') {
       const courses = this.store.getCourses();
-      courses.forEach(c => groups[c.id] = { title: `${c.kode} - ${c.nama}`, items: [] });
-      if (!groups['no_course']) groups['no_course'] = { title: 'Tanpa Mata Kuliah', items: [] };
+      courses.forEach(c => groups['crs_' + c.id] = { title: `${c.kode} - ${c.nama}`, items: [] });
+      const projects = this.store.getProjects ? this.store.getProjects() : [];
+      projects.forEach(p => groups['prj_' + p.id] = { title: `Proyek: ${p.nama}`, items: [] });
+      if (!groups['other']) groups['other'] = { title: 'Lainnya', items: [] };
       tasks.forEach(t => {
-        if (groups[t.course_id]) {
-          groups[t.course_id].items.push(t);
+        if (t.course_id && groups['crs_' + t.course_id]) {
+          groups['crs_' + t.course_id].items.push(t);
+        } else if (t.project_id && groups['prj_' + t.project_id]) {
+          groups['prj_' + t.project_id].items.push(t);
         } else {
-          groups['no_course'].items.push(t);
+          groups['other'].items.push(t);
         }
       });
     } else if (groupBy === 'priority') {
@@ -78,7 +93,7 @@ class ListView {
       if (group.items.length === 0) {
         html += `
           <tr class="task-row">
-            <td colspan="5" style="text-align: center; color: var(--color-muted); padding: 16px;">
+            <td colspan="6" style="text-align: center; color: var(--color-muted); padding: 16px;">
               Belum ada tugas di kategori ini
             </td>
           </tr>
@@ -101,7 +116,8 @@ class ListView {
   }
 
   renderTaskRow(task) {
-    const course = this.store.getCourse(task.course_id);
+    const course = task.course_id ? this.store.getCourse(task.course_id) : null;
+    const project = task.project_id ? this.store.getProject(task.project_id) : null;
     const status = this.store.getStatus(task.status_id);
     const isCompleted = status ? status.apakah_selesai : false;
     const isOverdue = this.store.isTaskOverdue(task);
@@ -178,9 +194,15 @@ class ListView {
         <td class="task-course-col">
           ${course ? `
             <span class="course-badge" style="border-left: 2px solid ${course.warna || 'var(--color-border)'}">
+              <i class="fa-solid fa-${course.ikon || 'book'}" style="font-size: 0.72rem; margin-right: 4px;"></i>
               ${this.escapeHtml(course.kode)} · ${this.escapeHtml(course.nama.length > 18 ? course.nama.substring(0, 16) + '...' : course.nama)}
             </span>
-          ` : '<span class="mono-label" style="color: var(--color-muted);">-</span>'}
+          ` : (project ? `
+            <span class="project-badge" style="border-left: 2px solid #2563EB; background: rgba(37, 99, 235, 0.08); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; color: #2563EB; display: inline-flex; align-items: center; gap: 4px;">
+              <i class="fa-solid fa-rocket" style="font-size: 0.7rem;"></i>
+              ${this.escapeHtml(project.nama.length > 18 ? project.nama.substring(0, 16) + '...' : project.nama)}
+            </span>
+          ` : '<span class="mono-label" style="color: var(--color-muted);">-</span>')}
         </td>
         <td class="task-priority-col">
           <span class="priority-badge ${prioClass}">

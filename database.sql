@@ -41,12 +41,22 @@ CREATE TABLE IF NOT EXISTS `courses` (
 -- 3. Table Statuses
 CREATE TABLE IF NOT EXISTS `statuses` (
   `id` VARCHAR(64) NOT NULL,
+  `course_id` VARCHAR(64) NULL,
+  `project_id` VARCHAR(64) NULL,
   `nama` VARCHAR(100) NOT NULL,
   `urutan` INT NOT NULL DEFAULT 0,
   `apakah_selesai` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_statuses_course` (`course_id`),
+  KEY `idx_statuses_project` (`project_id`),
+  CONSTRAINT `fk_statuses_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_statuses_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_status_owner` CHECK (
+    (`course_id` IS NOT NULL AND `project_id` IS NULL) OR
+    (`course_id` IS NULL AND `project_id` IS NOT NULL)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 4. Table Projects (Tugas Besar / Proyek)
@@ -84,9 +94,35 @@ CREATE TABLE IF NOT EXISTS `tasks` (
   KEY `idx_tasks_status` (`status_id`),
   KEY `idx_tasks_deadline` (`deadline`),
   KEY `idx_tasks_dihapus` (`dihapus_pada`),
-  CONSTRAINT `fk_tasks_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_tasks_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_tasks_status` FOREIGN KEY (`status_id`) REFERENCES `statuses` (`id`) ON DELETE RESTRICT
+  CONSTRAINT `fk_tasks_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tasks_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_tasks_status` FOREIGN KEY (`status_id`) REFERENCES `statuses` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `chk_task_owner` CHECK (
+    (`course_id` IS NOT NULL AND `project_id` IS NULL) OR
+    (`course_id` IS NULL AND `project_id` IS NOT NULL)
+  )
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5.5 Table Custom Fields (Properti Kustom)
+CREATE TABLE IF NOT EXISTS `custom_fields` (
+  `id` VARCHAR(64) NOT NULL,
+  `course_id` VARCHAR(64) NULL,
+  `project_id` VARCHAR(64) NULL,
+  `nama` VARCHAR(100) NOT NULL,
+  `tipe` VARCHAR(32) NOT NULL DEFAULT 'text',
+  `opsi` TEXT NULL,
+  `urutan` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_custom_fields_course` (`course_id`),
+  KEY `idx_custom_fields_project` (`project_id`),
+  CONSTRAINT `fk_custom_fields_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_custom_fields_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_customfield_owner` CHECK (
+    (`course_id` IS NOT NULL AND `project_id` IS NULL) OR
+    (`course_id` IS NULL AND `project_id` IS NOT NULL)
+  )
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 6. Table Subtasks
@@ -134,13 +170,6 @@ CREATE TABLE IF NOT EXISTS `task_attachments` (
 -- SEED DATA (Default Initial Records)
 -- =============================================================================
 
--- Statuses
-INSERT IGNORE INTO `statuses` (`id`, `nama`, `urutan`, `apakah_selesai`) VALUES
-('st_todo', 'Belum Mulai', 0, 0),
-('st_prog', 'Sedang Dikerjakan', 1, 0),
-('st_rev', 'Butuh Review', 2, 0),
-('st_done', 'Selesai', 3, 1);
-
 -- Semesters
 INSERT IGNORE INTO `semesters` (`id`, `nama`, `tanggal_mulai`, `tanggal_selesai`, `warna`, `ikon`, `diarsipkan`) VALUES
 ('sem_5', 'Semester 5 (Ganjil 2026/2027)', '2026-09-01', '2027-01-31', '#2C5EF5', 'book-open', 0),
@@ -159,13 +188,51 @@ INSERT IGNORE INTO `projects` (`id`, `user_id`, `nama`, `deskripsi`, `deadline`,
 ('prj_ecom', 'usr_me', 'Tugas Besar: Portal E-Commerce Kampus', 'Aplikasi fullstack e-commerce untuk kantin dan koperasi mahasiswa.', '2026-11-06 23:59:00', 'Sedang Berjalan'),
 ('prj_ai_img', 'usr_me', 'Mini Project: Klasifikasi Citra Medis', 'Model CNN transfer learning menggunakan PyTorch untuk deteksi paru-paru.', '2026-11-13 23:59:00', 'Perencanaan');
 
--- Tasks
+-- Statuses (Dimiliki oleh course_id ATAU project_id)
+INSERT IGNORE INTO `statuses` (`id`, `course_id`, `project_id`, `nama`, `urutan`, `apakah_selesai`) VALUES
+-- Status crs_web
+('st_crs_web_todo', 'crs_web', NULL, 'Belum Mulai', 0, 0),
+('st_crs_web_prog', 'crs_web', NULL, 'Sedang Dikerjakan', 1, 0),
+('st_crs_web_rev',  'crs_web', NULL, 'Butuh Review', 2, 0),
+('st_crs_web_done', 'crs_web', NULL, 'Selesai', 3, 1),
+-- Status crs_db
+('st_crs_db_todo', 'crs_db', NULL, 'Belum Mulai', 0, 0),
+('st_crs_db_prog', 'crs_db', NULL, 'Sedang Dikerjakan', 1, 0),
+('st_crs_db_rev',  'crs_db', NULL, 'Butuh Review', 2, 0),
+('st_crs_db_done', 'crs_db', NULL, 'Selesai', 3, 1),
+-- Status crs_ai
+('st_crs_ai_todo', 'crs_ai', NULL, 'Belum Mulai', 0, 0),
+('st_crs_ai_prog', 'crs_ai', NULL, 'Sedang Dikerjakan', 1, 0),
+('st_crs_ai_rev',  'crs_ai', NULL, 'Butuh Review', 2, 0),
+('st_crs_ai_done', 'crs_ai', NULL, 'Selesai', 3, 1),
+-- Status crs_dist
+('st_crs_dist_todo', 'crs_dist', NULL, 'Belum Mulai', 0, 0),
+('st_crs_dist_prog', 'crs_dist', NULL, 'Sedang Dikerjakan', 1, 0),
+('st_crs_dist_rev',  'crs_dist', NULL, 'Butuh Review', 2, 0),
+('st_crs_dist_done', 'crs_dist', NULL, 'Selesai', 3, 1),
+-- Status crs_uiux
+('st_crs_uiux_todo', 'crs_uiux', NULL, 'Belum Mulai', 0, 0),
+('st_crs_uiux_prog', 'crs_uiux', NULL, 'Sedang Dikerjakan', 1, 0),
+('st_crs_uiux_rev',  'crs_uiux', NULL, 'Butuh Review', 2, 0),
+('st_crs_uiux_done', 'crs_uiux', NULL, 'Selesai', 3, 1),
+-- Status prj_ecom
+('st_prj_ecom_todo', NULL, 'prj_ecom', 'Belum Mulai', 0, 0),
+('st_prj_ecom_prog', NULL, 'prj_ecom', 'Dikerjakan', 1, 0),
+('st_prj_ecom_rev',  NULL, 'prj_ecom', 'Review', 2, 0),
+('st_prj_ecom_done', NULL, 'prj_ecom', 'Selesai', 3, 1),
+-- Status prj_ai_img
+('st_prj_ai_img_todo', NULL, 'prj_ai_img', 'Belum Mulai', 0, 0),
+('st_prj_ai_img_prog', NULL, 'prj_ai_img', 'Dikerjakan', 1, 0),
+('st_prj_ai_img_rev',  NULL, 'prj_ai_img', 'Review', 2, 0),
+('st_prj_ai_img_done', NULL, 'prj_ai_img', 'Selesai', 3, 1);
+
+-- Tasks (Saling eksklusif: course_id ATAU project_id)
 INSERT IGNORE INTO `tasks` (`id`, `course_id`, `project_id`, `status_id`, `judul`, `deskripsi`, `prioritas`, `deadline`, `urutan`, `tags`, `custom_url`, `dihapus_pada`) VALUES
-('tsk_1', 'crs_web', 'prj_ecom', 'st_prog', 'Implementasi REST API Autentikasi JWT & Role Admin', 'Membuat endpoint login, register, refresh token, dan middleware role authorization.', 'Tinggi', DATE_ADD(CURRENT_DATE(), INTERVAL '23:59' HOUR_MINUTE), 0, '["Backend","Tugas Besar"]', 'https://github.com/tugasin/api-core', NULL),
-('tsk_2', 'crs_db', NULL, 'st_todo', 'Laporan Praktikum 4: Optimasi Query & Normalisasi BCNF', 'Menganalisis query plan EXPLAIN pada tabel 1 juta baris dan membuat indeks komposit.', 'Mendesak', DATE_ADD(CURRENT_DATE(), INTERVAL '1 17:00' DAY_MINUTE), 1, '["Praktikum","Laporan"]', NULL, NULL),
-('tsk_3', 'crs_ai', 'prj_ai_img', 'st_prog', 'Pembersihan Dataset Citra & Augmentasi Data (PyTorch)', 'Melakukan resize 224x224, rotasi acak, flip horizontal, dan normalisasi mean/std ImageNet.', 'Sedang', DATE_ADD(CURRENT_DATE(), INTERVAL '3 21:00' DAY_MINUTE), 2, '["Kecerdasan Buatan","Machine Learning"]', 'https://kaggle.com/datasets/medical-chest', NULL),
-('tsk_4', 'crs_uiux', 'prj_ecom', 'st_rev', 'Hi-Fi Prototyping & Usability Testing Alur Checkout', 'Menyelesaikan prototype interaktif Figma alur checkout payment gateway dan tes ke 5 responden.', 'Tinggi', DATE_ADD(CURRENT_DATE(), INTERVAL '2 12:00' DAY_MINUTE), 3, '["UI/UX","Figma"]', 'https://figma.com/file/checkout-prototype', NULL),
-('tsk_5', 'crs_dist', NULL, 'st_todo', 'Tugas Mandiri: Simulasi Algoritma Konsensus Raft', 'Membaca paper Ongaro (2014) dan membuat ringkasan mekanisme leader election & log replication.', 'Rendah', DATE_ADD(CURRENT_DATE(), INTERVAL '6 23:59' DAY_MINUTE), 4, '["Tugas Teori"]', NULL, NULL);
+('tsk_1', 'crs_web', NULL, 'st_crs_web_prog', 'Implementasi REST API Autentikasi JWT & Role Admin', 'Membuat endpoint login, register, refresh token, dan middleware role authorization.', 'Tinggi', DATE_ADD(CURRENT_DATE(), INTERVAL '23:59' HOUR_MINUTE), 0, '["Backend","Tugas Besar"]', 'https://github.com/tugasin/api-core', NULL),
+('tsk_2', 'crs_db', NULL, 'st_crs_db_todo', 'Laporan Praktikum 4: Optimasi Query & Normalisasi BCNF', 'Menganalisis query plan EXPLAIN pada tabel 1 juta baris dan membuat indeks komposit.', 'Mendesak', DATE_ADD(CURRENT_DATE(), INTERVAL '1 17:00' DAY_MINUTE), 1, '["Praktikum","Laporan"]', NULL, NULL),
+('tsk_3', 'crs_ai', NULL, 'st_crs_ai_prog', 'Pembersihan Dataset Citra & Augmentasi Data (PyTorch)', 'Melakukan resize 224x224, rotasi acak, flip horizontal, dan normalisasi mean/std ImageNet.', 'Sedang', DATE_ADD(CURRENT_DATE(), INTERVAL '3 21:00' DAY_MINUTE), 2, '["Kecerdasan Buatan","Machine Learning"]', 'https://kaggle.com/datasets/medical-chest', NULL),
+('tsk_4', NULL, 'prj_ecom', 'st_prj_ecom_rev', 'Hi-Fi Prototyping & Usability Testing Alur Checkout', 'Menyelesaikan prototype interaktif Figma alur checkout payment gateway dan tes ke 5 responden.', 'Tinggi', DATE_ADD(CURRENT_DATE(), INTERVAL '2 12:00' DAY_MINUTE), 3, '["UI/UX","Figma"]', 'https://figma.com/file/checkout-prototype', NULL),
+('tsk_5', 'crs_dist', NULL, 'st_crs_dist_todo', 'Tugas Mandiri: Simulasi Algoritma Konsensus Raft', 'Membaca paper Ongaro (2014) dan membuat ringkasan mekanisme leader election & log replication.', 'Rendah', DATE_ADD(CURRENT_DATE(), INTERVAL '6 23:59' DAY_MINUTE), 4, '["Tugas Teori"]', NULL, NULL);
 
 -- Subtasks
 INSERT IGNORE INTO `subtasks` (`id`, `task_id`, `judul`, `selesai`, `urutan`) VALUES

@@ -1,77 +1,67 @@
 ---
-version: alpha
-name: Glassline
-description: Fog-grey neutrals with a cobalt pinprick.
+version: 2.0
+name: Glassline (Light Mode) - TugasIn Unified Design System
+description: Light Mode design guideline for TugasIn, merged and fully documented in design.md.
 colors:
   primary: "#0F1419"
   secondary: "#4A5568"
   tertiary: "#2C5EF5"
+  tertiary-hover: "#1D4ED8"
   neutral: "#F1F3F5"
   surface: "#FFFFFF"
+  surface-elevated: "#F8F9FA"
+  border: "#CBD5E1"
+  border-subtle: "#E2E8F0"
   on-primary: "#FFFFFF"
 typography:
-  display:
-    fontFamily: Geist
-    fontSize: 3.75rem
-    fontWeight: 600
-    letterSpacing: "-0.03em"
-  h1:
-    fontFamily: Geist
-    fontSize: 2.25rem
-    fontWeight: 600
-    letterSpacing: "-0.02em"
-  body:
-    fontFamily: Geist
-    fontSize: 0.95rem
-    lineHeight: 1.55
-  label:
-    fontFamily: Geist Mono
-    fontSize: 0.75rem
-    letterSpacing: "0"
+  primaryFont: "Geist, -apple-system, BlinkMacSystemFont, sans-serif"
+  monoFont: "Geist Mono, JetBrains Mono, monospace"
 rounded:
   sm: 6px
   md: 10px
   lg: 16px
+  full: 9999px
 spacing:
+  xs: 4px
   sm: 8px
   md: 16px
-  lg: 32px
+  lg: 24px
+  xl: 32px
 components:
-  button-primary:
-    backgroundColor: "{colors.tertiary}"
-    textColor: "{colors.on-primary}"
-    rounded: "{rounded.md}"
-    padding: 12px 20px
-  card:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.primary}"
-    rounded: "{rounded.lg}"
-    padding: 24px
+  select-premium:
+    component: "CustomSelect"
+    portal: true
+    mobileBottomSheet: true
+    sizes: ["sm (32px)", "md (40px)", "lg (48px)"]
+    features: ["Color Dots", "Badge IF3101", "Searchable Combobox", "WAI-ARIA"]
 ---
 
-## Overview
+# Glassline (Light Mode) Design Guideline
 
-A cool, quiet palette built around 8-step neutrals. A single cobalt for action keeps the interface calm but directable.
+> [!NOTE]
+> Panduan desain ini telah digabungkan secara lengkap dan tersinkronisasi bersama mode gelap (*Graphite*) ke dalam file utama:
+> 📄 **[design.md](file:///d:/xampp/htdocs/tugasIn/design.md)** (TugasIn Unified Design System).
 
-## Colors
+---
 
-The palette is built around high-contrast neutrals and a single accent that drives interaction.
+## Ringkasan Mode Terang (*Glassline*)
 
-- **Primary (`#0F1419`):** Headlines and core text.
-- **Secondary (`#4A5568`):** Borders, captions, and metadata.
-- **Tertiary (`#2C5EF5`):** The sole driver for interaction. Reserve it.
-- **Neutral (`#F1F3F5`):** The page foundation.
+Palet warna *cool & quiet* berfondasi netral kabut (*fog-grey* `#F1F3F5`) dengan satu aksen penentu aksi yaitu **Cobalt Blue (`#2C5EF5`)**.
 
-## Typography
+### Palet Warna Inti:
+- **Primary (`#0F1419`):** Judul utama dan teks esensial (kontras tinggi).
+- **Secondary (`#4A5568`):** Subtitle, metadata, border kartu, dan caption.
+- **Tertiary (`#2C5EF5`):** Satu-satunya pendorong aksi interaksi (CTA). Digunakan hemat dan eksklusif.
+- **Neutral (`#F1F3F5`):** Kanvas dan latar belakang halaman.
+- **Surface (`#FFFFFF`):** Latar kartu konten dan panel form.
+- **Surface Elevated (`#F8F9FA`):** Header kolom status, hover baris, modal bar.
 
-- **display:** Geist 3.75rem
-- **h1:** Geist 2.25rem
-- **body:** Geist 0.95rem
-- **label:** Geist Mono 0.75rem
+### Komponen Select Option Premium (`CustomSelect`):
+- Terintegrasi penuh dengan token Glassline (`--control-bg`, `--control-border`, ring fokus Cobalt).
+- Portal floating panel di desktop dan otomatis bertransformasi menjadi **Mobile Bottom Sheet** (≤ 640px) dengan pegangan geser (*drag handle*) & *backdrop blur*.
+- Dilengkapi indikator titik warna (*Color Dots*), lencana kode mata kuliah (*Monospace Badge*), serta pencarian combobox real-time.
 
-## Do's and Don'ts
-
-- **Do** use Tertiary for exactly one action per screen.
-- **Do** let Neutral carry the composition — negative space is a feature.
-- **Don't** introduce gradients. This system is flat on purpose.
-- **Don't** mix Tertiary with alternate accents; the single-accent rule is load-bearing.
+### Aturan Utama:
+1. **Satu Aksi Primer per Layar:** Tombol Cobalt hanya untuk tindakan utama.
+2. **Tanpa Gradien:** Desain sengaja datar (*flat on purpose*).
+3. **Detail Lengkap:** Silakan merujuk ke **[design.md](file:///d:/xampp/htdocs/tugasIn/design.md)** untuk matriks perbandingan lengkap dengan mode gelap, skala spasi, dan spesifikasi komponen mobile/desktop.

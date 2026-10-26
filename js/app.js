@@ -240,6 +240,18 @@ class App {
         handleSearchInput(e.target.value, 'mobile');
       });
     }
+
+    // Topbar dynamic shadow on scroll
+    const mainContainer = document.getElementById('main-container');
+    const topBar = document.getElementById('top-bar');
+    if (topBar) {
+      const updateScroll = () => {
+        const top = (mainContainer ? mainContainer.scrollTop : 0) || window.scrollY || 0;
+        topBar.classList.toggle('scrolled', top > 10);
+      };
+      if (mainContainer) mainContainer.addEventListener('scroll', updateScroll, { passive: true });
+      window.addEventListener('scroll', updateScroll, { passive: true });
+    }
   }
 
   // --- FORM CONTROLS INITIALIZATION (TASK 1 - 6) ---
@@ -249,7 +261,7 @@ class App {
     // 1. Toolbar filters
     CustomSelect.enhance('#filter-task-type', {
       size: 'sm',
-      placeholder: 'Semua Jenis Task',
+      placeholder: 'Semua Jenis',
       onChange: (val) => {
         this.filterTaskType = val;
         this.renderCurrentView();
@@ -920,7 +932,7 @@ class App {
       if (window.CustomSelect) window.CustomSelect.syncAll();
     }
     this.renderCurrentView();
-    this.showToastNotification('Menampilkan tugas yang sedang dikerjakan (On Going)');
+    this.showToastNotification('Menampilkan tugas yang sedang dikerjakan');
   }
 
   // --- RENDER CURRENT VIEW ---
@@ -931,9 +943,9 @@ class App {
     const container = document.getElementById('view-body');
     const greetingSec = document.getElementById('greeting-section');
 
-    // Toggle Greeting Section visibility: show on task & project views, hide on settings, archive, trash
+    // Toggle Greeting Section visibility: show on today & all views, hide on course, project, settings, archive, trash
     if (greetingSec) {
-      if (['today', 'all', 'course', 'project'].includes(this.currentView)) {
+      if (['today', 'all'].includes(this.currentView)) {
         greetingSec.style.display = 'block';
         this.updateGreetingSection();
       } else {
@@ -1013,14 +1025,27 @@ class App {
 
     // Adjust filter-task-type visibility (only show on global views)
     const filterTypeEl = document.getElementById('filter-task-type');
-    const filterTypeWrapper = filterTypeEl ? (filterTypeEl.closest('.cs-wrapper') || filterTypeEl) : null;
+    const filterTypeWrapper = filterTypeEl ? (
+      (filterTypeEl.nextElementSibling && filterTypeEl.nextElementSibling.classList.contains('custom-select'))
+        ? filterTypeEl.nextElementSibling
+        : filterTypeEl
+    ) : null;
     if (filterTypeWrapper) {
       if (['today', 'all'].includes(this.currentView)) {
         filterTypeWrapper.style.display = '';
+        if (filterTypeEl) filterTypeEl.style.display = '';
         filterOptions.taskType = this.filterTaskType || '';
       } else {
         filterTypeWrapper.style.display = 'none';
+        if (filterTypeEl) filterTypeEl.style.display = 'none';
       }
+    }
+
+    // Reset context banner by default
+    const bannerSec = document.getElementById('context-banner-section');
+    if (bannerSec) {
+      bannerSec.style.display = 'none';
+      bannerSec.innerHTML = '';
     }
 
     if (this.currentView === 'today') {
@@ -1046,31 +1071,41 @@ class App {
 
     } else if (this.currentView === 'course') {
       const course = this.store.getCourse(this.activeCourseId);
-      if (titleEl) {
-        if (course) {
-          titleEl.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: ${course.warna || '#2C5EF5'}20; color: ${course.warna || '#2C5EF5'}; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem;">
-                  <i class="fa-solid fa-${course.ikon || 'book'}"></i>
-                </span>
-                <span>${this.escapeHtml(course.kode)} · ${this.escapeHtml(course.nama)}</span>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" onclick="window.app.openCourseModal('${course.id}')">
-                  <i class="fa-solid fa-pen-to-square"></i> Edit Mata Kuliah
-                </button>
-                <button class="btn btn-primary btn-sm" onclick="window.app.openQuickAddModalWithCourse('${course.id}')">
-                  <i class="fa-solid fa-plus"></i> Tambah Tugas
-                </button>
+      if (subtitleEl) subtitleEl.textContent = 'Mata Kuliah';
+      if (titleEl) titleEl.textContent = course ? course.nama : 'Mata Kuliah';
+
+      if (bannerSec && course) {
+        bannerSec.style.display = 'block';
+        bannerSec.innerHTML = `
+          <div class="context-banner-card">
+            <div class="context-banner-left">
+              <span class="context-banner-icon" style="background: ${course.warna || '#2C5EF5'}20; color: ${course.warna || '#2C5EF5'};">
+                <i class="fa-solid fa-${course.ikon || 'book'}"></i>
+              </span>
+              <div class="context-banner-info">
+                <div class="context-banner-title-row">
+                  <span class="badge" style="background: ${course.warna || '#2C5EF5'}15; color: ${course.warna || '#2C5EF5'}; border: 1px solid ${course.warna || '#2C5EF5'}30; font-weight: 600;">${this.escapeHtml(course.kode)}</span>
+                  <h2 class="context-banner-title">${this.escapeHtml(course.nama)}</h2>
+                </div>
+                <div class="context-banner-meta">
+                  <span><i class="fa-solid fa-graduation-cap"></i> ${course.sks} SKS</span>
+                  <span>•</span>
+                  <span><i class="fa-solid fa-chalkboard-user"></i> ${this.escapeHtml(course.dosen || 'Dosen Pengampu Belum Diisi')}</span>
+                </div>
               </div>
             </div>
-          `;
-        } else {
-          titleEl.textContent = 'Mata Kuliah';
-        }
+            <div class="context-banner-actions">
+              <button class="btn btn-secondary btn-sm" onclick="window.app.openCourseModal('${course.id}')" title="Edit Mata Kuliah">
+                <i class="fa-solid fa-pen-to-square"></i> Edit Mata Kuliah
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="window.app.openQuickAddModalWithCourse('${course.id}')">
+                <i class="fa-solid fa-plus"></i> Tambah Tugas
+              </button>
+            </div>
+          </div>
+        `;
       }
-      if (subtitleEl) subtitleEl.textContent = course ? `${course.sks} SKS · Dosen: ${course.dosen || '-'}` : 'Mata Kuliah';
+
       if (toolbar) toolbar.style.display = 'flex';
       filterOptions.courseId = this.activeCourseId;
       const tasks = this.store.getTasks(filterOptions);
@@ -1080,17 +1115,31 @@ class App {
       if (this.activeProjectId) {
         const project = this.store.getProject(this.activeProjectId);
         if (project) {
-          if (titleEl) {
-            titleEl.innerHTML = `
-              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="width: 32px; height: 32px; border-radius: var(--radius-sm); background: rgba(37, 99, 235, 0.15); color: #2563EB; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem;">
+          if (subtitleEl) subtitleEl.textContent = 'Proyek';
+          if (titleEl) titleEl.textContent = project.nama;
+
+          if (bannerSec) {
+            bannerSec.style.display = 'block';
+            const dlStr = project.deadline ? new Date(project.deadline).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Tidak ada target';
+            bannerSec.innerHTML = `
+              <div class="context-banner-card">
+                <div class="context-banner-left">
+                  <span class="context-banner-icon" style="background: rgba(37, 99, 235, 0.15); color: #2563EB;">
                     <i class="fa-solid fa-rocket"></i>
                   </span>
-                  <span>${this.escapeHtml(project.nama)}</span>
+                  <div class="context-banner-info">
+                    <div class="context-banner-title-row">
+                      <h2 class="context-banner-title">${this.escapeHtml(project.nama)}</h2>
+                      <span class="badge" style="background: rgba(37, 99, 235, 0.1); color: #2563EB; border: 1px solid rgba(37, 99, 235, 0.25);">${this.escapeHtml(project.status || 'Aktif')}</span>
+                    </div>
+                    <div class="context-banner-meta">
+                      <span><i class="fa-regular fa-calendar-check"></i> Target: ${dlStr}</span>
+                      ${project.deskripsi ? `<span>•</span> <span>${this.escapeHtml(project.deskripsi)}</span>` : ''}
+                    </div>
+                  </div>
                 </div>
-                <div style="display: flex; gap: 8px;">
-                  <button class="btn btn-secondary btn-sm" onclick="window.app.openProjectModal('${project.id}')">
+                <div class="context-banner-actions">
+                  <button class="btn btn-secondary btn-sm" onclick="window.app.openProjectModal('${project.id}')" title="Edit Proyek">
                     <i class="fa-solid fa-pen-to-square"></i> Edit Proyek
                   </button>
                   <button class="btn btn-primary btn-sm" onclick="window.app.openQuickAddModalWithProject('${project.id}')">
@@ -1100,10 +1149,7 @@ class App {
               </div>
             `;
           }
-          if (subtitleEl) {
-            const dlStr = project.deadline ? new Date(project.deadline).toLocaleDateString('id-ID') : '-';
-            subtitleEl.textContent = `Proyek / Tugas Besar · Status: ${project.status || 'Aktif'} · Target Selesai: ${dlStr}`;
-          }
+
           if (toolbar) toolbar.style.display = 'flex';
           filterOptions.projectId = this.activeProjectId;
           const tasks = this.store.getTasks(filterOptions);
@@ -1950,21 +1996,11 @@ class App {
     }
   }
 
-  // --- STATUS ACTIONS (KANBAN) ---
+  // --- STATUS ACTIONS (KANBAN - GLOBAL STATUSES) ---
   addNewStatusPrompt() {
-    let owner = {};
-    if (this.currentView === 'course' && this.activeCourseId) {
-      owner.courseId = this.activeCourseId;
-    } else if (this.currentView === 'project' && this.activeProjectId) {
-      owner.projectId = this.activeProjectId;
-    } else {
-      alert('Pilih halaman Mata Kuliah atau Proyek tertentu terlebih dahulu untuk menambah kolom status kanban.');
-      return;
-    }
-
     const name = prompt('Masukkan nama kolom status baru:');
     if (name && name.trim()) {
-      this.store.addStatus(name.trim(), false, owner);
+      this.store.addStatus(name.trim(), false);
     }
   }
 
@@ -1980,18 +2016,10 @@ class App {
     if (!status) return;
 
     if (confirm('Hapus kolom status ini? Task di kolom ini akan dipindah ke kolom pertama.')) {
-      let ownerStatuses = [];
-      if (status.course_id) {
-        ownerStatuses = this.store.getStatusesForCourse(status.course_id);
-      } else if (status.project_id) {
-        ownerStatuses = this.store.getStatusesForProject(status.project_id);
-      } else {
-        ownerStatuses = this.store.getStatuses();
-      }
-
-      const remaining = ownerStatuses.filter(s => s.id !== statusId);
+      const allStatuses = this.store.getStatuses();
+      const remaining = allStatuses.filter(s => s.id !== statusId);
       if (remaining.length === 0) {
-        alert('Tidak dapat menghapus status terakhir dari mata kuliah/proyek ini.');
+        alert('Tidak dapat menghapus status terakhir. Sistem membutuhkan minimal 1 status.');
         return;
       }
 
@@ -2106,11 +2134,10 @@ class App {
   }
 
   openQuickAddModalWithStatus(statusId) {
-    const status = this.store.getStatus(statusId);
-    if (status && status.project_id) {
-      this.openQuickAddModalWithProject(status.project_id);
-    } else if (status && status.course_id) {
-      this.openQuickAddModalWithCourse(status.course_id);
+    if (this.currentView === 'course' && this.activeCourseId) {
+      this.openQuickAddModalWithCourse(this.activeCourseId);
+    } else if (this.currentView === 'project' && this.activeProjectId) {
+      this.openQuickAddModalWithProject(this.activeProjectId);
     } else {
       this.openQuickAddModal();
     }
@@ -2186,22 +2213,18 @@ class App {
     const statusSelect = document.getElementById('qa-status');
     if (!statusSelect) return;
 
-    let statuses = [];
-    if (type === 'course' && ownerId) {
-      statuses = this.store.getStatusesForCourse(ownerId);
-    } else if (type === 'project' && ownerId) {
-      statuses = this.store.getStatusesForProject(ownerId);
-    } else {
-      statuses = this.store.getStatuses();
-    }
-
-    statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
+    const statuses = this.store.getStatuses();
+    const curVal = statusSelect.value;
+    statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === curVal ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
     if (window.CustomSelect) {
       window.CustomSelect.syncAll();
     }
   }
 
   populateQuickAddForm() {
+    // Statuses
+    this.refreshQuickAddStatuses();
+
     // Courses
     const courseSelect = document.getElementById('qa-course');
     if (courseSelect) {
@@ -2309,7 +2332,7 @@ class App {
         courseSelect.innerHTML = courses.map(c => `<option value="${c.id}" data-badge="${this.escapeHtml(c.kode)}" ${c.id === task.course_id ? 'selected' : ''}>${this.escapeHtml(c.kode)} - ${this.escapeHtml(c.nama)}</option>`).join('');
       }
 
-      const statuses = this.store.getStatusesForCourse(task.course_id);
+      const statuses = this.store.getStatuses();
       if (statusSelect) {
         statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
       }
@@ -2326,7 +2349,7 @@ class App {
         projSelect.innerHTML = projects.map(p => `<option value="${p.id}" data-dot="#2563EB" ${p.id === task.project_id ? 'selected' : ''}>${this.escapeHtml(p.nama)}</option>`).join('');
       }
 
-      const statuses = this.store.getStatusesForProject(task.project_id);
+      const statuses = this.store.getStatuses();
       if (statusSelect) {
         statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
       }
@@ -2374,22 +2397,10 @@ class App {
   }
 
   onEditTaskCourseChange() {
-    const courseId = document.getElementById('edit-task-course').value;
-    const statusSelect = document.getElementById('edit-task-status');
-    if (statusSelect) {
-      const statuses = this.store.getStatusesForCourse(courseId);
-      statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
-    }
     if (window.CustomSelect) window.CustomSelect.syncAll();
   }
 
   onEditTaskProjectChange() {
-    const projectId = document.getElementById('edit-task-project').value;
-    const statusSelect = document.getElementById('edit-task-status');
-    if (statusSelect) {
-      const statuses = this.store.getStatusesForProject(projectId);
-      statusSelect.innerHTML = statuses.map(s => `<option value="${s.id}">${this.escapeHtml(s.nama)}</option>`).join('');
-    }
     if (window.CustomSelect) window.CustomSelect.syncAll();
   }
 

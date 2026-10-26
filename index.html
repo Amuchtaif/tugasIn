@@ -13,7 +13,7 @@
     href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-  <link rel="stylesheet" href="css/style.css?v=2.1">
+  <link rel="stylesheet" href="css/style.css?v=2.6">
   <script>
     (function () {
       // Default theme: Glassline Light Mode (design-lightmode.md)
@@ -241,7 +241,7 @@
               </div>
             </div>
 
-            <!-- Reminder 2: Sedang Dikerjakan (On Going) -->
+            <!-- Reminder 2: Sedang Dikerjakan -->
             <div class="reminder-card reminder-ongoing" id="reminder-card-ongoing" onclick="window.app.filterByOngoing()" title="Klik untuk melihat tugas yang sedang dikerjakan">
               <div class="reminder-icon-box ongoing-icon">
                 <i class="fa-solid fa-bars-progress"></i>
@@ -251,12 +251,15 @@
                   <span class="reminder-value" id="reminder-ongoing-count">0</span>
                   <span class="reminder-label">Tugas</span>
                 </div>
-                <div class="reminder-desc">Sedang Dikerjakan (On Going)</div>
+                <div class="reminder-desc">Sedang Dikerjakan</div>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      <!-- DYNAMIC CONTEXT BANNER (MATA KULIAH / PROYEK HEADER) -->
+      <section id="context-banner-section" class="context-banner-section" style="display: none;"></section>
 
       <!-- VIEW TOOLBAR -->
       <section class="view-toolbar">
@@ -278,7 +281,7 @@
           <div class="filter-group">
             <select id="filter-task-type" class="filter-select"
               onchange="window.app.filterTaskType = this.value; window.app.renderCurrentView();">
-              <option value="">Semua Jenis Task</option>
+              <option value="">Semua Jenis</option>
               <option value="course">🎓 Tugas Mata Kuliah</option>
               <option value="project">🚀 Task Project</option>
             </select>
@@ -308,7 +311,7 @@
           onsubmit="window.app.handleInlineQuickAdd(event, this)">
           <span class="mono-label" style="color: var(--color-tertiary);"><i class="fa-solid fa-plus"></i></span>
           <input type="text" class="quick-add-input" placeholder="Quick add: ketik judul tugas dan tekan Enter...">
-          <span class="mono-label" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
+          <span class="mono-label kbd-shortcut quick-add-shortcut" style="font-size: 0.7rem; color: var(--color-muted);">Enter ↵</span>
         </form>
       </section>
 
@@ -953,14 +956,14 @@
   </div>
 
   <!-- Core Scripts -->
-  <script src="js/button.js?v=2.2"></script>
-  <script src="js/form-controls.js?v=2.2"></script>
-  <script src="js/store.js?v=2.2"></script>
-  <script src="js/telegram.js?v=2.2"></script>
-  <script src="js/list-view.js?v=2.2"></script>
-  <script src="js/kanban-view.js?v=2.2"></script>
-  <script src="js/calendar-view.js?v=2.2"></script>
-  <script src="js/app.js?v=2.2"></script>
+  <script src="js/button.js?v=2.6"></script>
+  <script src="js/form-controls.js?v=2.6"></script>
+  <script src="js/store.js?v=2.6"></script>
+  <script src="js/telegram.js?v=2.6"></script>
+  <script src="js/list-view.js?v=2.6"></script>
+  <script src="js/kanban-view.js?v=2.6"></script>
+  <script src="js/calendar-view.js?v=2.6"></script>
+  <script src="js/app.js?v=2.6"></script>
 
 </body>
 

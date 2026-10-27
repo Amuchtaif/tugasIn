@@ -948,6 +948,121 @@ try {
         exit;
     }
 
+    if ($action === 'get_cron_status') {
+        $stmt = $db->prepare("SELECT nilai FROM settings WHERE kunci = 'cron_last_run'");
+        $stmt->execute();
+        $lastRun = $stmt->fetchColumn() ?: null;
+
+        $diffSec = $lastRun ? (time() - strtotime($lastRun)) : null;
+        $isAlive = ($diffSec !== null && $diffSec <= 180);
+
+        $cronInstalled = $isAlive;
+        if (!$cronInstalled && function_exists('shell_exec')) {
+            $crontab = @shell_exec('crontab -l 2>/dev/null') ?: '';
+            $cronInstalled = (strpos($crontab, 'cron_reminders.php') !== false);
+        }
+
+        $taskLogCount = 0;
+        $schedLogCount = 0;
+        try {
+            $taskLogCount = (int)$db->query("SELECT COUNT(*) FROM task_reminder_logs")->fetchColumn();
+            $schedLogCount = (int)$db->query("SELECT COUNT(*) FROM schedule_reminder_logs")->fetchColumn();
+        } catch (Exception $e) {}
+
+        echo json_encode([
+            'ok' => true,
+            'cron_last_run' => $lastRun,
+            'seconds_ago' => $diffSec,
+            'is_alive' => $isAlive,
+            'cron_installed' => $cronInstalled,
+            'total_task_logs' => $taskLogCount,
+            'total_schedule_logs' => $schedLogCount
+        ]);
+        exit;
+    }
+
+    if ($action === 'run_cron') {
+        $output = '';
+        if (function_exists('shell_exec')) {
+            $phpBin = PHP_BINARY ?: '/usr/bin/php';
+            $output = @shell_exec("{$phpBin} " . escapeshellarg(__DIR__ . '/cron_reminders.php') . " 2>&1");
+        }
+        if (empty($output)) {
+            $url = 'http://127.0.0.1/tugasIn/cron_reminders.php';
+            $output = @file_get_contents($url);
+        }
+        $json = json_decode($output, true);
+        if ($json) {
+            echo json_encode($json);
+        } else {
+            echo json_encode(['ok' => true, 'raw_output' => $output]);
+        }
+        exit;
+    }
+
+    if ($action === 'setup_cron') {
+        $success = false;
+        $message = '';
+        if (function_exists('shell_exec')) {
+            $crontab = @shell_exec('crontab -l 2>/dev/null') ?: '';
+            if (strpos($crontab, 'cron_reminders.php') === false) {
+                $phpBin = PHP_BINARY ?: '/usr/bin/php';
+                $line = "* * * * * {$phpBin} " . __DIR__ . "/cron_reminders.php >> " . __DIR__ . "/cron.log 2>&1\n";
+                $newCrontab = trim($crontab) . "\n" . $line;
+                $cmd = "echo " . escapeshellarg($newCrontab) . " | crontab -";
+                @shell_exec($cmd);
+                $crontabCheck = @shell_exec('crontab -l 2>/dev/null') ?: '';
+                $success = (strpos($crontabCheck, 'cron_reminders.php') !== false);
+                $message = $success ? 'Cron job berhasil dipasang ke sistem Linux!' : 'Gagal memasang cron job.';
+            } else {
+                $success = true;
+                $message = 'Cron job sudah terpasang dan aktif di sistem Linux.';
+            }
+        } else {
+            $message = 'Fungsi shell_exec dinonaktifkan di server PHP.';
+        }
+        echo json_encode(['ok' => $success, 'message' => $message]);
+        exit;
+    }
+
+    // ---------------------------------------------------------
+    // 8.1.1 SINKRONISASI SKEMA DATABASE (ALTER SCHEMA RUNNER)
+    // ---------------------------------------------------------
+    if ($action === 'sync_schema') {
+        try {
+            $db = getDbConnection();
+            $sqlFile = __DIR__ . '/alter_schema.sql';
+            if (!file_exists($sqlFile)) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Berkas alter_schema.sql tidak ditemukan di server.']);
+                exit;
+            }
+            $sql = file_get_contents($sqlFile);
+            $db->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+            $db->exec($sql);
+
+            $tCount = (int)$db->query("SELECT COUNT(*) FROM tasks")->fetchColumn();
+            $cCount = (int)$db->query("SELECT COUNT(*) FROM courses")->fetchColumn();
+            $sCount = (int)$db->query("SELECT COUNT(*) FROM statuses")->fetchColumn();
+            $schCount = (int)$db->query("SELECT COUNT(*) FROM schedules")->fetchColumn();
+
+            echo json_encode([
+                'ok' => true,
+                'message' => 'Skema database berhasil disinkronkan secara aman tanpa mengubah atau menghapus data!',
+                'stats' => [
+                    'tasks' => $tCount,
+                    'courses' => $cCount,
+                    'statuses' => $sCount,
+                    'schedules' => $schCount
+                ]
+            ]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Gagal sinkronisasi skema: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+
     // ---------------------------------------------------------
     // 8.2 TASK ATTACHMENTS (Gambar Pendukung)
     // ---------------------------------------------------------

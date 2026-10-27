@@ -1006,6 +1006,9 @@ class App {
       statusId: this.filterStatus
     };
 
+    // Keep toolbar status filter in sync with authoritative statuses
+    this.syncFilterStatusDropdown();
+
     const breadcrumbParent = document.getElementById('breadcrumb-parent');
     const breadcrumbTitle = document.getElementById('breadcrumb-title');
     if (breadcrumbParent) breadcrumbParent.textContent = 'TugasIn';
@@ -1686,6 +1689,8 @@ class App {
     const container = document.getElementById('view-body');
     const settings = this.store.getSettings();
     const currentTheme = document.documentElement.getAttribute('data-theme') || settings.theme || 'light';
+    const currentBaseUrl = window.location.origin + window.location.pathname.replace(/\/[^\/]*$/, '');
+    const cronHttpUrl = `${currentBaseUrl}/cron_reminders.php`;
 
     let html = `
       <div style="display: flex; flex-direction: column; gap: 24px; max-width: 780px;">
@@ -1812,6 +1817,97 @@ class App {
           </form>
         </div>
 
+        <!-- Background Server Cron Reminder Card (24/7 Notifikasi Otomatis) -->
+        <div class="card">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div class="h3" style="margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-clock-rotate-left" style="color: var(--color-tertiary);"></i>
+                <span>Pengingat Otomatis Latar Belakang (Server Cron 24/7)</span>
+              </div>
+              <div style="font-size: 0.82rem; color: var(--color-secondary); line-height: 1.5;">
+                Pemberitahuan bot Telegram otomatis berjalan di latar belakang server via Linux Crontab setiap menit, sehingga notifikasi deadline tugas dan jadwal kuliah <b>tetap terkirim meskipun browser ditutup atau laptop dimatikan</b>.
+              </div>
+            </div>
+            <div id="cron-status-badge">
+              <span class="mono-label" style="font-size: 0.75rem; background: var(--color-surface-elevated); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--color-border); display: inline-flex; align-items: center; gap: 6px;">
+                <span class="status-dot active"></span> <span>Memeriksa Worker Server...</span>
+              </span>
+            </div>
+          </div>
+
+          <div style="background: var(--color-surface-elevated); padding: 14px 16px; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <div style="font-size: 0.86rem; font-weight: 600; color: var(--color-primary);" id="cron-status-headline">
+                  🟢 Worker Crontab Terhubung & Aktif
+                </div>
+                <div class="mono-label" style="font-size: 0.78rem; color: var(--color-secondary); margin-top: 3px;" id="cron-status-details">
+                  Memuat data eksekusi terakhir...
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.app.checkCronStatus(true)">
+                  <i class="fa-solid fa-rotate"></i> Cek Status
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="window.app.runManualCron()">
+                  <i class="fa-solid fa-play"></i> Jalankan Pengingat Sekarang
+                </button>
+              </div>
+            </div>
+            <div id="cron-action-feedback" class="mono-label" style="font-size: 0.78rem; margin-top: 8px; display: none;"></div>
+          </div>
+
+          <div style="background: var(--color-surface); padding: 14px 16px; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-top: 10px;">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <i class="fa-solid fa-server" style="color: var(--color-tertiary);"></i>
+              <span>Pilihan Perintah untuk Shared Hosting (cPanel / DirectAdmin / WebCron):</span>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--color-secondary); margin-bottom: 12px; line-height: 1.5;">
+              Di cPanel, buka menu <b>Cron Jobs (Tugas Cron)</b>, pilih jadwal <b>Once Per Minute (* * * * *)</b> atau tiap 5 menit, lalu salin salah satu opsi perintah di bawah:
+            </p>
+
+            <!-- Option 1: cURL URL (Recommended for shared hosting) -->
+            <div style="margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span class="mono-label" style="font-weight: 600; color: var(--color-primary); font-size: 0.75rem;">
+                  ⭐ Metode 1 (cURL URL - Sangat Mudah & Pasti Berfungsi di Semua Hosting):
+                </span>
+                <button type="button" class="btn btn-ghost btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="window.app.copyToClipboard('curl -s &quot;${cronHttpUrl}&quot; >/dev/null 2>&1', this)">
+                  <i class="fa-regular fa-copy"></i> Salin Perintah
+                </button>
+              </div>
+              <pre style="margin: 0; background: var(--color-surface-elevated); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.76rem; overflow-x: auto; color: var(--color-primary);"><code>curl -s "${cronHttpUrl}" >/dev/null 2>&1</code></pre>
+            </div>
+
+            <!-- Option 2: PHP CLI -->
+            <div style="margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span class="mono-label" style="font-weight: 600; color: var(--color-primary); font-size: 0.75rem;">
+                  Metode 2 (PHP CLI cPanel):
+                </span>
+                <button type="button" class="btn btn-ghost btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="window.app.copyToClipboard('php -q /home/USER_CPANEL/public_html/cron_reminders.php >/dev/null 2>&1', this)">
+                  <i class="fa-regular fa-copy"></i> Salin Perintah
+                </button>
+              </div>
+              <pre style="margin: 0; background: var(--color-surface-elevated); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.76rem; overflow-x: auto; color: var(--color-primary);"><code>php -q /home/USER_CPANEL/public_html/cron_reminders.php >/dev/null 2>&1</code></pre>
+            </div>
+
+            <!-- Option 3: External Free WebCron -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span class="mono-label" style="font-weight: 600; color: var(--color-primary); font-size: 0.75rem;">
+                  Metode 3 (External WebCron Gratis di cron-job.org jika shared hosting membatasi cron):
+                </span>
+                <button type="button" class="btn btn-ghost btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="window.app.copyToClipboard('${cronHttpUrl}', this)">
+                  <i class="fa-regular fa-copy"></i> Salin URL
+                </button>
+              </div>
+              <pre style="margin: 0; background: var(--color-surface-elevated); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.76rem; overflow-x: auto; color: var(--color-primary);"><code>${cronHttpUrl}</code></pre>
+            </div>
+          </div>
+        </div>
+
         <!-- Backup & Restore SQL Card -->
         <div class="card">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
@@ -1870,6 +1966,27 @@ class App {
                 <div style="font-size: 0.73rem; color: var(--color-muted); text-align: center; margin-top: 6px;">
                   Bisa klik tombol di atas atau tarik (drag & drop) berkas <code>.sql</code> ke kotak ini
                 </div>
+              </div>
+            </div>
+
+            <!-- Box Sync Schema (Shared Hosting & Lokal) -->
+            <div style="background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: space-between; gap: 12px;">
+              <div>
+                <div style="font-weight: 600; font-size: 0.9rem; color: var(--color-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                  <i class="fa-solid fa-arrows-rotate" style="color: #6366F1;"></i>
+                  <span>Sinkronisasi Skema (.SQL)</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-secondary); line-height: 1.5;">
+                  Perbarui struktur tabel, kolom baru, dan status kanban global tanpa menghapus atau mengubah catatan data tugas yang sudah ada.
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button type="button" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center;" onclick="window.app.syncDatabaseSchema(this)">
+                  <i class="fa-solid fa-bolt"></i> Sinkronkan Skema Sekarang
+                </button>
+                <a href="alter_schema.sql" download class="btn btn-secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px; width: 100%; justify-content: center; text-decoration: none;">
+                  <i class="fa-solid fa-file-code"></i> Unduh alter_schema.sql
+                </a>
               </div>
             </div>
           </div>
@@ -1947,11 +2064,131 @@ class App {
     `;
 
     container.innerHTML = html;
+    setTimeout(() => this.checkCronStatus(), 50);
   }
 
   // --- ACTIONS ---
   toggleTaskCompletion(id) {
     this.store.toggleTaskCompletion(id);
+  }
+
+  updateTaskStatus(taskId, statusId) {
+    if (!taskId || !statusId) return;
+    this.store.updateTask(taskId, { status_id: statusId });
+  }
+
+  syncFilterStatusDropdown() {
+    const filterEl = document.getElementById('filter-status');
+    if (!filterEl) return;
+    const statuses = this.store.getStatuses();
+    const curVal = this.filterStatus || '';
+    const newOptionsHtml = `<option value="">Semua Status</option>` +
+      statuses.map(s => `<option value="${s.id}" ${s.id === curVal ? 'selected' : ''}>${this.escapeHtml(s.nama)}</option>`).join('');
+    
+    const signature = JSON.stringify(statuses.map(s => s.id));
+    if (filterEl.dataset.renderedStatuses !== signature) {
+      filterEl.dataset.renderedStatuses = signature;
+      filterEl.innerHTML = newOptionsHtml;
+      filterEl.value = curVal;
+      if (window.CustomSelect) window.CustomSelect.syncAll();
+    }
+  }
+
+  async checkCronStatus(showToast = false) {
+    try {
+      const res = await fetch('api.php?action=get_cron_status');
+      const data = await res.json();
+      const badgeEl = document.getElementById('cron-status-badge');
+      const headlineEl = document.getElementById('cron-status-headline');
+      const detailsEl = document.getElementById('cron-status-details');
+
+      if (data && data.ok) {
+        const isAlive = Boolean(data.is_alive || data.cron_installed);
+        const lastRunStr = data.cron_last_run ? new Date(data.cron_last_run).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Belum pernah';
+        const secAgo = (data.seconds_ago !== null && data.seconds_ago !== undefined) ? `${Math.max(0, data.seconds_ago)} detik lalu` : '-';
+
+        if (badgeEl) {
+          badgeEl.innerHTML = `
+            <span class="mono-label" style="font-size: 0.75rem; background: ${isAlive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; color: ${isAlive ? '#059669' : '#DC2626'}; padding: 4px 10px; border-radius: 20px; border: 1px solid ${isAlive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}; display: inline-flex; align-items: center; gap: 6px;">
+              <span class="status-dot ${isAlive ? 'active' : ''}"></span> <span>${isAlive ? 'Server Cron Aktif (24/7)' : 'Server Cron Menunggu'}</span>
+            </span>
+          `;
+        }
+        if (headlineEl) {
+          headlineEl.innerHTML = isAlive 
+            ? `🟢 Server Cron Aktif Berjalan Otomatis di Latar Belakang`
+            : `🟡 Server Cron Terpasang (Menunggu Jadwal Berikutnya)`;
+        }
+        if (detailsEl) {
+          detailsEl.textContent = `Terakhir berjalan: ${lastRunStr} (${secAgo}) · Log pengingat: ${data.total_task_logs || 0} tugas, ${data.total_schedule_logs || 0} jadwal.`;
+        }
+        if (showToast) {
+          this.showToastNotification(isAlive ? 'Server Cron aktif dan berjalan normal setiap menit.' : 'Status cron berhasil diperbarui.');
+        }
+      }
+    } catch (e) {
+      console.warn('Gagal memuat status server cron:', e);
+    }
+  }
+
+  async runManualCron() {
+    const feedbackEl = document.getElementById('cron-action-feedback');
+    if (feedbackEl) {
+      feedbackEl.style.display = 'block';
+      feedbackEl.style.color = 'var(--color-tertiary)';
+      feedbackEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menjalankan pemeriksaan deadline server...';
+    }
+    try {
+      const res = await fetch('api.php?action=run_cron');
+      const data = await res.json();
+      if (feedbackEl) {
+        if (data && data.ok) {
+          feedbackEl.style.color = '#059669';
+          feedbackEl.innerHTML = `<i class="fa-solid fa-check"></i> Pemeriksaan selesai: ${data.total_tasks_checked || 0} tugas diperiksa, ${data.task_alerts_sent || 0} notifikasi tugas terkirim, ${data.today_schedules_checked || 0} jadwal kuliah diperiksa.`;
+        } else {
+          feedbackEl.style.color = 'var(--color-secondary)';
+          feedbackEl.innerHTML = `<i class="fa-solid fa-info-circle"></i> ${data.message || 'Cron selesai dijalankan.'}`;
+        }
+      }
+      this.checkCronStatus();
+    } catch (e) {
+      if (feedbackEl) {
+        feedbackEl.style.color = 'var(--color-danger)';
+        feedbackEl.textContent = `Gagal menjalankan cron: ${e.message}`;
+      }
+    }
+  }
+
+  copyToClipboard(text, btn) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        if (btn) {
+          const original = btn.innerHTML;
+          btn.innerHTML = '<i class="fa-solid fa-check"></i> Tersalin!';
+          setTimeout(() => { btn.innerHTML = original; }, 2000);
+        }
+        this.showToastNotification('Perintah berhasil disalin ke clipboard!');
+      }).catch(() => {
+        this.fallbackCopy(text);
+      });
+    } else {
+      this.fallbackCopy(text);
+    }
+  }
+
+  fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      this.showToastNotification('Perintah berhasil disalin!');
+    } catch (err) {}
+    ta.remove();
   }
 
   deleteTask(id) {
@@ -3373,6 +3610,56 @@ class App {
       const fileInput = document.getElementById('restore-sql-file-input');
       if (fileInput) fileInput.value = '';
       this.selectedRestoreFile = null;
+    }
+  }
+
+  async syncDatabaseSchema(btn) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Menyinkronkan...';
+    }
+
+    const feedback = document.getElementById('restore-feedback');
+    if (feedback) {
+      feedback.style.color = 'var(--color-secondary)';
+      feedback.textContent = 'Mengeksekusi migrasi skema alter_schema.sql ke database MySQL...';
+    }
+
+    try {
+      const res = await fetch('api.php?action=sync_schema', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && data.ok) {
+        this.showToastNotification(data.message || 'Skema database berhasil disinkronkan!');
+        if (feedback) {
+          feedback.style.color = 'var(--color-tertiary)';
+          feedback.textContent = '✓ ' + (data.message || 'Skema berhasil disinkronkan!');
+        }
+        await this.store.fetchFromBackend();
+        this.updateDbStatusUi();
+        this.renderSidebar();
+        this.renderTopStats();
+        this.renderCurrentView();
+      } else {
+        const errorMsg = (data && data.error) ? data.error : 'Gagal menyinkronkan skema.';
+        alert('Gagal menyinkronkan skema database:\n' + errorMsg);
+        if (feedback) {
+          feedback.style.color = 'var(--color-danger)';
+          feedback.textContent = '✕ Gagal sinkronisasi: ' + errorMsg;
+        }
+      }
+    } catch (err) {
+      console.error('Sync schema error:', err);
+      alert('Terjadi kesalahan jaringan atau server saat sinkronisasi skema:\n' + err.message);
+      if (feedback) {
+        feedback.style.color = 'var(--color-danger)';
+        feedback.textContent = '✕ Error: ' + err.message;
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
     }
   }
 

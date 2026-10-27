@@ -66,3 +66,49 @@ Dua bug yang ditemukan setelah sistem jadi:
 - [x] Telusuri alur utama: buat semester → mata kuliah → task → pindah di kanban → lihat di kalender → terima pengingat.
 - [x] Uji di browser desktop dan viewport mobile.
 - [x] Catat bug lain yang muncul sebagai task baru, tidak mencampur ke Task 1 dan 2.
+
+---
+
+## TASK 4: Sinkronisasi Status Kanban dan List Task
+
+**Prioritas:** P0  
+**Tujuan:** Status tugas di Kanban dan List View sinkron 100%, pengelompokan dinamis sesuai status global, dan status dapat diubah langsung dari baris tabel List View.
+
+| #   | Subtask                     | Detail                                                                                                                                                                          | Status |
+| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 4.1 | Migrasi Status Database     | Bersihkan 36 data status per-course legacy di tabel `statuses`. Hapus check constraint `chk_status_owner` dan jadikan 4 status global kanban standar (`st_todo`, `st_prog`, `st_rev`, `st_done`). | [x]    |
+| 4.2 | Dynamic Grouping List View  | Ubah `ListView.render()` agar membaca langsung daftar status dari `this.store.getStatuses()` secara dinamis, mengurutkan task berdasarkan kolom `urutan`, dan tidak memakai hardcoded string. | [x]    |
+| 4.3 | Kolom Status di List View   | Tambahkan kolom status `.task-status-col` dan elemen select badge interaktif `.task-status-inline-select` di setiap baris tugas List View.                                    | [x]    |
+| 4.4 | Handler Perubahan Status    | Buat fungsi `window.app.updateTaskStatus(taskId, statusId)` yang menyimpan perubahan ke MySQL via `api.php?action=save_task` dan memicu update reaktif di semua view.          | [x]    |
+| 4.5 | Sinkronisasi Filter Status  | Standarkan value `<select id="filter-status">` di `index.html` dan buat sinkronisasi dinamis `syncFilterStatusDropdown()` agar opsi filter status selalu valid.                | [x]    |
+
+---
+
+## TASK 5: Notifikasi Bot Telegram Latar Belakang (Server Cron 24/7 Tanpa Browser)
+
+**Prioritas:** P0  
+**Tujuan:** Pengingat bot Telegram berjalan otomatis di latar belakang server via Linux Crontab, mengirimkan notifikasi deadline tugas dan jadwal kuliah tanpa perlu browser terbuka.
+
+| #   | Subtask                     | Detail                                                                                                                                                                          | Status |
+| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 5.1 | Server Cron Worker          | Refactor [cron_reminders.php](file:///var/www/html/tugasIn/cron_reminders.php) agar mendukung offset reminder dinamis (`[72, 24, 2]`), deduplikasi via `task_reminder_logs` dan `schedule_reminder_logs`.     | [x]    |
+| 5.2 | Background Task Scheduler   | Pasang entri Linux Crontab: `* * * * * /usr/bin/php /var/www/html/tugasIn/cron_reminders.php >> /var/www/html/tugasIn/cron.log 2>&1` agar worker berjalan otomatis setiap menit. | [x]    |
+| 5.3 | Timezone & Health Logging   | Samakan timezone PHP dan MySQL ke `Asia/Jakarta` di [config.php](file:///var/www/html/tugasIn/config.php) dan catat timestamp `cron_last_run` di tabel `settings`.                   | [x]    |
+| 5.4 | Endpoint API Status Cron    | Tambahkan action `get_cron_status`, `run_cron`, dan `setup_cron` di [api.php](file:///var/www/html/tugasIn/api.php).                                                            | [x]    |
+| 5.5 | UI Status Cron di Settings  | Tampilkan kartu **Pengingat Otomatis Latar Belakang (Server Cron 24/7)** di halaman Pengaturan lengkap dengan badge live, status detak cron, dan tombol eksekusi manual.       | [x]    |
+
+---
+
+## TASK 6: Sinkronisasi Skema Database Hosting & Lokal (Zero Data Loss)
+
+**Prioritas:** P0  
+**Tujuan:** Menstandarkan skema database antara lokal dan shared hosting (cPanel/phpMyAdmin) secara 100% kompatibel tanpa merusak, menghapus, atau mengubah rekaman data tugas yang sudah ada.
+
+| #   | Subtask                     | Detail                                                                                                                                                                          | Status |
+| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| 6.1 | Refactor Script SQL Migrasi | Hapus ketergantungan `USE tugasin_db;`, `DELIMITER $$`, dan Stored Procedure pada [alter_schema.sql](file:///var/www/html/tugasIn/alter_schema.sql). Ganti dengan Dynamic SQL `PREPARE` murni berbasis `DATABASE()` yang kompatibel di semua versi MySQL/MariaDB & phpMyAdmin. | [x] |
+| 6.2 | Preservasi Data (Zero Loss) | Buat pemetaan relasi data lama: seluruh variasi `status_id` legacy (`_todo`, `_prog`, `_rev`, `_done`) dipetakan ke 4 status global, normalisasi relasi invalid sebelum pemasangan foreign key baru. | [x] |
+| 6.3 | Endpoint API `sync_schema`  | Tambahkan action `sync_schema` di [api.php](file:///var/www/html/tugasIn/api.php) yang dapat mengeksekusi migrasi skema via PDO backend secara instan.                        | [x]    |
+| 6.4 | Tombol Sinkronisasi di UI   | Tambahkan box **Sinkronisasi Skema (.SQL)** di halaman Pengaturan web TugasIn lengkap dengan tombol **"Sinkronkan Skema Sekarang"** dan tautan unduh [alter_schema.sql](file:///var/www/html/tugasIn/alter_schema.sql). | [x]    |
+| 6.5 | Validasi Eksekusi & Uji Coba| Uji eksekusi langsung via CLI dan Browser Subagent: script berhasil dieksekusi berkali-kali (idempotent) dengan 0 error dan seluruh catatan data tugas tetap utuh.           | [x]    |
+

@@ -1,0 +1,3 @@
+cron.log
+uploads/*
+!uploads/.gitkeep

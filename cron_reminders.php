@@ -1,9 +1,11 @@
 <?php
 /**
- * TugasIn - Server-Side Background Deadline Reminder
- * Can be run via Windows Task Scheduler, Cron, or HTTP request.
- * Automatically checks MySQL database for approaching or overdue deadlines
+ * TugasIn - Server-Side Background Reminder Worker (24/7 Crontab / Task Scheduler)
+ * Automatically checks MySQL database for approaching or overdue deadlines and schedules,
  * and sends instant notifications to Telegram without needing a browser open.
+ *
+ * Usage via Linux Crontab (Runs every minute in background):
+ *   * * * * * /usr/bin/php /var/www/html/tugasIn/cron_reminders.php >> /var/www/html/tugasIn/cron.log 2>&1
  *
  * Usage via CLI:
  *   php cron_reminders.php
@@ -13,15 +15,50 @@
  */
 
 header('Content-Type: application/json; charset=utf-8');
+@set_time_limit(60);
+@ini_set('memory_limit', '128M');
 
 require_once __DIR__ . '/config.php';
 
 try {
     $db = getDbConnection();
 
-    // 1. Fetch Telegram Settings
-    $settingsStmt = $db->query("SELECT kunci, nilai FROM settings WHERE kunci IN ('telegram_bot_token', 'telegram_chat_id', 'telegram_enabled')");
+    // 1. Fetch Settings
+    $settingsStmt = $db->query("SELECT kunci, nilai FROM settings WHERE kunci IN ('telegram_bot_token', 'telegram_chat_id', 'telegram_enabled', 'default_reminder_hours', 'timezone')");
     $settingsRaw = $settingsStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    $timezone = !empty($settingsRaw['timezone']) ? $settingsRaw['timezone'] : 'Asia/Jakarta';
+    @date_default_timezone_set($timezone);
+
+    // Update 'cron_last_run' timestamp so the frontend & settings know server cron is alive
+    try {
+        $lastRunStmt = $db->prepare("INSERT INTO settings (kunci, nilai) VALUES ('cron_last_run', NOW()) ON DUPLICATE KEY UPDATE nilai = NOW()");
+        $lastRunStmt->execute();
+    } catch (Exception $e) {}
+
+    // Ensure required log tables exist
+    try {
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `task_reminder_logs` (
+              `id` INT AUTO_INCREMENT PRIMARY KEY,
+              `task_id` VARCHAR(64) NOT NULL,
+              `reminder_type` VARCHAR(32) NOT NULL,
+              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY `idx_task_rem_unique` (`task_id`, `reminder_type`),
+              KEY `idx_task_rem_task` (`task_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `schedule_reminder_logs` (
+              `id` INT AUTO_INCREMENT PRIMARY KEY,
+              `schedule_id` VARCHAR(64) NOT NULL,
+              `reminder_type` VARCHAR(20) NOT NULL,
+              `tanggal` DATE NOT NULL,
+              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE KEY `idx_sched_rem_unique` (`schedule_id`, `reminder_type`, `tanggal`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    } catch (Exception $e) {}
 
     $token = $settingsRaw['telegram_bot_token'] ?? '';
     $chatId = $settingsRaw['telegram_chat_id'] ?? '';
@@ -30,19 +67,53 @@ try {
     if (!$enabled || empty($token) || empty($chatId)) {
         echo json_encode([
             'ok' => false,
-            'message' => 'Integrasi Telegram dinonaktifkan atau belum dikonfigurasi lengkap (token / chat_id kosong).'
+            'cron_alive' => true,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'message' => 'Server cron aktif berjalan di latar belakang, namun Telegram Bot belum diaktifkan atau belum disetel (token / chat_id kosong).'
         ]);
         exit;
     }
 
+    // Helper for Telegram API call
+    $sendTelegram = function($text) use ($token, $chatId) {
+        $url = "https://api.telegram.org/bot{$token}/sendMessage";
+        $payload = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML'
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        if (defined('CURL_IPRESOLVE_V4')) {
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        }
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        $res = curl_exec($ch);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($err) return ['ok' => false, 'error' => $err];
+        $data = json_decode($res, true);
+        return $data ?: ['ok' => true];
+    };
+
     // 2. Fetch Active, Incomplete Tasks with Deadlines
     $stmt = $db->query("
         SELECT 
-            t.id, t.judul, t.deadline, t.prioritas,
+            t.id, t.judul, t.deadline, t.prioritas, t.course_id, t.project_id,
             c.nama AS course_nama, c.kode AS course_kode,
+            p.nama AS project_nama,
             s.apakah_selesai
         FROM tasks t
         LEFT JOIN courses c ON t.course_id = c.id
+        LEFT JOIN projects p ON t.project_id = p.id
         LEFT JOIN statuses s ON t.status_id = s.id
         WHERE t.dihapus_pada IS NULL
           AND t.deadline IS NOT NULL
@@ -55,6 +126,14 @@ try {
     $alertsSent = 0;
     $details = [];
 
+    // Parse reminder hour offsets from settings (e.g. [72, 24, 2])
+    $offsets = json_decode($settingsRaw['default_reminder_hours'] ?? '[72, 24, 2]', true);
+    if (!is_array($offsets) || empty($offsets)) {
+        $offsets = [72, 24, 2];
+    }
+    // Sort descending so larger offsets are checked first
+    rsort($offsets);
+
     foreach ($tasks as $task) {
         $deadlineTime = strtotime($task['deadline']);
         if (!$deadlineTime) continue;
@@ -63,64 +142,83 @@ try {
         $diffHours = $diffSec / 3600;
         $diffMins = round($diffSec / 60);
 
+        // If deadline is far in the future (> 2h), clean up any stale 'overdue' or 'imminent' logs (e.g. from snooze)
+        if ($diffSec > 7200) {
+            try {
+                $db->prepare("DELETE FROM task_reminder_logs WHERE task_id = :tid AND reminder_type IN ('overdue', 'imminent')")->execute([':tid' => $task['id']]);
+            } catch (Exception $e) {}
+        }
+
         $shouldAlert = false;
-        $alertType = '';
+        $reminderType = '';
+        $reminderHeader = '';
         $subtitle = '';
 
-        // Overdue (passed within last 12 hours)
-        if ($diffSec < 0 && abs($diffSec) <= 12 * 3600) {
-            $shouldAlert = true;
-            $alertType = 'overdue';
-            $subtitle = '⚠️ Tugas ini telah melewati batas deadline!';
+        // A. Overdue (passed within last 24 hours)
+        if ($diffSec < 0 && abs($diffSec) <= 24 * 3600) {
+            $reminderType = 'overdue';
+            $reminderHeader = '⚠️ PENGINGAT DEADLINE TUGASIN (TERLEWAT)';
+            $subtitle = '⚠️ Tugas ini telah melewati batas waktu deadline!';
         }
-        // Imminent (under 2 hours remaining)
+        // B. Check imminent (under 2 hours remaining)
         elseif ($diffSec > 0 && $diffHours <= 2) {
-            $shouldAlert = true;
-            $alertType = 'imminent';
-            $subtitle = "⏳ Deadline tersisa {$diffMins} menit lagi!";
+            $reminderType = '2h';
+            $reminderHeader = '⏳ PENGINGAT DEADLINE TUGASIN (SEGERA)';
+            $subtitle = "⏳ Deadline tersisa {$diffMins} menit lagi! Segera selesaikan tugas Anda.";
+        }
+        // C. Check configured hour offsets (e.g. 72h / 24h)
+        elseif ($diffSec > 0) {
+            foreach ($offsets as $h) {
+                if ($diffHours <= $h && $diffHours > ($h - 2)) {
+                    $reminderType = "{$h}h";
+                    $days = round($h / 24);
+                    $label = ($h >= 24) ? "H-{$days} hari ({$h} jam)" : "{$h} jam";
+                    $reminderHeader = "🔔 PENGINGAT DEADLINE TUGASIN ({$label})";
+                    $subtitle = "Pengingat deadline: Waktu tersisa sekitar {$label} lagi.";
+                    break;
+                }
+            }
         }
 
-        if ($shouldAlert) {
-            $courseLabel = !empty($task['course_nama']) ? "{$task['course_kode']} - {$task['course_nama']}" : 'Umum';
-            $deadlineStr = date('d M Y, H:i', $deadlineTime);
+        if (!empty($reminderType)) {
+            // Check if reminder was already sent for this task and reminder type
+            $checkStmt = $db->prepare("SELECT COUNT(*) FROM task_reminder_logs WHERE task_id = :tid AND reminder_type = :rtype");
+            $checkStmt->execute([
+                ':tid' => $task['id'],
+                ':rtype' => $reminderType
+            ]);
+            $alreadySent = (int)$checkStmt->fetchColumn() > 0;
 
-            $msg = "<b>⚠️ PENGINGAT DEADLINE TUGASIN</b>\n\n"
-                 . "📌 <b>Tugas:</b> " . htmlspecialchars($task['judul'], ENT_QUOTES, 'UTF-8') . "\n"
-                 . "📚 <b>Mata Kuliah:</b> " . htmlspecialchars($courseLabel, ENT_QUOTES, 'UTF-8') . "\n"
-                 . "⏳ <b>Deadline:</b> {$deadlineStr}\n"
-                 . "🔥 <b>Prioritas:</b> " . htmlspecialchars($task['prioritas'], ENT_QUOTES, 'UTF-8') . "\n"
-                 . "ℹ️ <i>{$subtitle}</i>\n\n"
-                 . "Buka TugasIn: http://localhost/tugasIn/";
+            if (!$alreadySent) {
+                $courseLabel = !empty($task['course_nama']) 
+                    ? "{$task['course_kode']} - {$task['course_nama']}" 
+                    : (!empty($task['project_nama']) ? "Proyek: {$task['project_nama']}" : 'Umum');
+                $deadlineStr = date('d M Y, H:i', $deadlineTime);
 
-            $url = "https://api.telegram.org/bot{$token}/sendMessage";
-            $payload = [
-                'chat_id' => $chatId,
-                'text' => $msg,
-                'parse_mode' => 'HTML'
-            ];
+                $msg = "<b>{$reminderHeader}</b>\n\n"
+                     . "📌 <b>Tugas:</b> " . htmlspecialchars($task['judul'], ENT_QUOTES, 'UTF-8') . "\n"
+                     . "📚 <b>Kategori:</b> " . htmlspecialchars($courseLabel, ENT_QUOTES, 'UTF-8') . "\n"
+                     . "⏳ <b>Deadline:</b> {$deadlineStr} WIB\n"
+                     . "🔥 <b>Prioritas:</b> " . htmlspecialchars($task['prioritas'], ENT_QUOTES, 'UTF-8') . "\n"
+                     . "ℹ️ <i>{$subtitle}</i>\n\n"
+                     . "Buka TugasIn: http://localhost/tugasIn/";
 
-            // Send via cURL
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            if (defined('CURL_IPRESOLVE_V4')) {
-                curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+                $res = $sendTelegram($msg);
+
+                // Record log
+                $logStmt = $db->prepare("INSERT INTO task_reminder_logs (task_id, reminder_type) VALUES (:tid, :rtype) ON DUPLICATE KEY UPDATE sent_at = NOW()");
+                $logStmt->execute([
+                    ':tid' => $task['id'],
+                    ':rtype' => $reminderType
+                ]);
+
+                $alertsSent++;
+                $details[] = [
+                    'task_id' => $task['id'],
+                    'judul' => $task['judul'],
+                    'type' => $reminderType
+                ];
             }
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            $res = curl_exec($ch);
-            curl_close($ch);
-
-            $alertsSent++;
-            $details[] = [
-                'task_id' => $task['id'],
-                'judul' => $task['judul'],
-                'type' => $alertType
-            ];
         }
     }
 
@@ -128,20 +226,6 @@ try {
     $daysMap = [0 => 'Minggu', 1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu'];
     $currentDayName = $daysMap[(int)date('w')];
     $todayDateStr = date('Y-m-d');
-
-    // Ensure table schedule_reminder_logs exists
-    try {
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS `schedule_reminder_logs` (
-              `id` INT AUTO_INCREMENT PRIMARY KEY,
-              `schedule_id` VARCHAR(64) NOT NULL,
-              `reminder_type` VARCHAR(20) NOT NULL,
-              `tanggal` DATE NOT NULL,
-              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE KEY `idx_sched_rem_unique` (`schedule_id`, `reminder_type`, `tanggal`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        ");
-    } catch (Exception $e) {}
 
     $schedStmt = $db->prepare("
         SELECT s.*, c.nama AS course_nama, c.kode AS course_kode, c.dosen AS course_dosen, c.ikon AS course_ikon
@@ -182,7 +266,6 @@ try {
         }
 
         if ($reminderType !== null) {
-            // Check if already sent today
             $checkStmt = $db->prepare("SELECT COUNT(*) FROM schedule_reminder_logs WHERE schedule_id = :sid AND reminder_type = :rtype AND tanggal = :tgl");
             $checkStmt->execute([
                 ':sid' => $sched['id'],
@@ -212,27 +295,7 @@ try {
                 $msg .= "\nℹ️ <i>{$subtitle}</i>\n\n"
                      . "Buka TugasIn: http://localhost/tugasIn/";
 
-                $url = "https://api.telegram.org/bot{$token}/sendMessage";
-                $payload = [
-                    'chat_id' => $chatId,
-                    'text' => $msg,
-                    'parse_mode' => 'HTML'
-                ];
-
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                if (defined('CURL_IPRESOLVE_V4')) {
-                    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-                }
-                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 6);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-                $res = curl_exec($ch);
-                curl_close($ch);
+                $sendTelegram($msg);
 
                 // Record in log to avoid duplicate spamming
                 $logStmt = $db->prepare("INSERT IGNORE INTO schedule_reminder_logs (schedule_id, reminder_type, tanggal) VALUES (:sid, :rtype, :tgl)");
@@ -255,6 +318,7 @@ try {
 
     echo json_encode([
         'ok' => true,
+        'cron_alive' => true,
         'timestamp' => date('Y-m-d H:i:s'),
         'total_tasks_checked' => count($tasks),
         'task_alerts_sent' => $alertsSent,
@@ -267,6 +331,7 @@ try {
 } catch (Exception $e) {
     echo json_encode([
         'ok' => false,
+        'cron_alive' => false,
         'error' => $e->getMessage()
     ]);
 }

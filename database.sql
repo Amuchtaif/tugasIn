@@ -86,11 +86,7 @@ CREATE TABLE IF NOT EXISTS `tasks` (
   KEY `idx_tasks_dihapus` (`dihapus_pada`),
   CONSTRAINT `fk_tasks_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_tasks_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_tasks_status` FOREIGN KEY (`status_id`) REFERENCES `statuses` (`id`) ON DELETE RESTRICT,
-  CONSTRAINT `chk_task_owner` CHECK (
-    (`course_id` IS NOT NULL AND `project_id` IS NULL) OR
-    (`course_id` IS NULL AND `project_id` IS NOT NULL)
-  )
+  CONSTRAINT `fk_tasks_status` FOREIGN KEY (`status_id`) REFERENCES `statuses` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 5.5 Table Custom Fields (Properti Kustom)
@@ -108,11 +104,7 @@ CREATE TABLE IF NOT EXISTS `custom_fields` (
   KEY `idx_custom_fields_course` (`course_id`),
   KEY `idx_custom_fields_project` (`project_id`),
   CONSTRAINT `fk_custom_fields_course` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_custom_fields_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `chk_customfield_owner` CHECK (
-    (`course_id` IS NOT NULL AND `project_id` IS NULL) OR
-    (`course_id` IS NULL AND `project_id` IS NOT NULL)
-  )
+  CONSTRAINT `fk_custom_fields_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 6. Table Subtasks
@@ -249,6 +241,17 @@ CREATE TABLE IF NOT EXISTS `schedule_reminder_logs` (
   UNIQUE KEY `idx_sched_rem_unique` (`schedule_id`, `reminder_type`, `tanggal`),
   KEY `idx_sched_rem_schedule` (`schedule_id`),
   CONSTRAINT `fk_sched_rem_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `schedules` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. Table Task Reminder Logs (Tracking riwayat notifikasi deadline tugas agar tidak duplikat)
+CREATE TABLE IF NOT EXISTS `task_reminder_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `task_id` VARCHAR(64) NOT NULL,
+  `reminder_type` VARCHAR(32) NOT NULL,
+  `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `idx_task_rem_unique` (`task_id`, `reminder_type`),
+  KEY `idx_task_rem_task` (`task_id`),
+  CONSTRAINT `fk_task_rem_task` FOREIGN KEY (`task_id`) REFERENCES `tasks` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Seed Schedules (Jadwal Kuliah Mahasiswa)

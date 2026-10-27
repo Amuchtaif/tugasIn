@@ -27,26 +27,32 @@ class ListView {
 
     let groups = {};
     if (groupBy === 'status') {
-      // Group by canonical status columns for clean unified presentation
-      groups = {
-        'todo': { title: 'Belum Mulai', isDone: false, items: [] },
-        'prog': { title: 'Sedang Dikerjakan / Dikerjakan', isDone: false, items: [] },
-        'rev':  { title: 'Butuh Review / Review', isDone: false, items: [] },
-        'done': { title: 'Selesai', isDone: true, items: [] }
-      };
+      // Dynamic grouping matching the authoritative Store & Kanban statuses
+      const statuses = this.store.getStatuses();
+      statuses.forEach(st => {
+        groups[st.id] = {
+          id: st.id,
+          title: st.nama,
+          isDone: Boolean(st.apakah_selesai),
+          items: []
+        };
+      });
       tasks.forEach(t => {
-        const st = this.store.getStatus(t.status_id);
-        const stName = st ? st.nama.toLowerCase() : '';
-        const isDone = st ? st.apakah_selesai : false;
-        if (isDone) {
-          groups['done'].items.push(t);
-        } else if (stName.includes('kerja') || stName.includes('prog') || stName.includes('doing')) {
-          groups['prog'].items.push(t);
-        } else if (stName.includes('rev') || stName.includes('tinjau')) {
-          groups['rev'].items.push(t);
+        if (groups[t.status_id]) {
+          groups[t.status_id].items.push(t);
         } else {
-          groups['todo'].items.push(t);
+          // If task status not found in groups, fallback to first matching or first status
+          const fallback = statuses.find(s => !s.apakah_selesai) || statuses[0];
+          if (fallback && groups[fallback.id]) {
+            groups[fallback.id].items.push(t);
+          } else if (statuses.length > 0 && groups[statuses[0].id]) {
+            groups[statuses[0].id].items.push(t);
+          }
         }
+      });
+      // Sort tasks in each status group by sequential urutan matching Kanban order
+      Object.values(groups).forEach(g => {
+        g.items.sort((a, b) => (Number(a.urutan) || 0) - (Number(b.urutan) || 0));
       });
     } else if (groupBy === 'course') {
       const courses = this.store.getCourses();
@@ -93,7 +99,7 @@ class ListView {
       if (group.items.length === 0) {
         html += `
           <tr class="task-row">
-            <td colspan="6" style="text-align: center; color: var(--color-muted); padding: 16px;">
+            <td colspan="7" style="text-align: center; color: var(--color-muted); padding: 16px;">
               Belum ada tugas di kategori ini
             </td>
           </tr>
@@ -172,6 +178,34 @@ class ListView {
       `;
     }
 
+    // Status badge select options
+    const statuses = this.store.getStatuses();
+    const currentStatus = this.store.getStatus(task.status_id);
+    let statusBadgeClass = 'status-badge-todo';
+    if (currentStatus) {
+      if (currentStatus.apakah_selesai) {
+        statusBadgeClass = 'status-badge-done';
+      } else if (task.status_id === 'st_prog' || currentStatus.nama.toLowerCase().includes('kerja') || currentStatus.nama.toLowerCase().includes('prog')) {
+        statusBadgeClass = 'status-badge-prog';
+      } else if (task.status_id === 'st_rev' || currentStatus.nama.toLowerCase().includes('rev')) {
+        statusBadgeClass = 'status-badge-rev';
+      }
+    }
+
+    const statusOptions = statuses.map(s => `
+      <option value="${s.id}" ${s.id === task.status_id ? 'selected' : ''}>
+        ${this.escapeHtml(s.nama)}
+      </option>
+    `).join('');
+
+    const statusHtml = `
+      <select class="task-status-inline-select ${statusBadgeClass}" 
+              onchange="window.app.updateTaskStatus('${task.id}', this.value)" 
+              title="Status Task: Ubah status langsung (otomatis sinkron ke Kanban)">
+        ${statusOptions}
+      </select>
+    `;
+
     return `
       <tr class="task-row" data-id="${task.id}">
         <td class="task-checkbox-col">
@@ -203,6 +237,9 @@ class ListView {
               ${this.escapeHtml(project.nama.length > 18 ? project.nama.substring(0, 16) + '...' : project.nama)}
             </span>
           ` : '<span class="mono-label" style="color: var(--color-muted);">-</span>')}
+        </td>
+        <td class="task-status-col">
+          ${statusHtml}
         </td>
         <td class="task-priority-col">
           <span class="priority-badge ${prioClass}">

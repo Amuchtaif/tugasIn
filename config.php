@@ -10,6 +10,7 @@ error_reporting(0);
 if (!ob_get_level()) {
     @ob_start();
 }
+@date_default_timezone_set('Asia/Jakarta');
 
 /**
  * ============================================================================

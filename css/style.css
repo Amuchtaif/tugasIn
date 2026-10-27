@@ -2518,6 +2518,59 @@ html.sidebar-init-collapsed #sidebar,
   width: 180px;
 }
 
+.task-status-col {
+  width: 155px;
+}
+
+.task-status-inline-select {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  padding-right: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-elevated);
+  color: var(--color-primary);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236B7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  max-width: 100%;
+}
+
+.task-status-inline-select:hover {
+  border-color: var(--color-tertiary);
+}
+
+.task-status-inline-select.status-badge-todo {
+  background-color: var(--color-neutral);
+  color: var(--color-secondary);
+  border-color: var(--color-border);
+}
+
+.task-status-inline-select.status-badge-prog {
+  background-color: rgba(44, 94, 245, 0.08);
+  color: #2C5EF5;
+  border-color: rgba(44, 94, 245, 0.35);
+}
+
+.task-status-inline-select.status-badge-rev {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #D97706;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.task-status-inline-select.status-badge-done {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
 .task-priority-col {
   width: 130px;
 }
